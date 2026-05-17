@@ -1,0 +1,74 @@
+# Reproduction report
+
+Running the pipeline documented in [`README.md`](README.md) on the Yakubovsky
+2026 live-donor liver atlas reproduces every reported number and figure of the
+manuscript. The tables below give the value produced by each analysis step; each
+matches the corresponding value in the manuscript.
+
+## Pipeline and axis validation
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Visium cohort | 16 samples, 47,828 spots (8 live-donor = 18,934; 8 patient = 28,894) | Fig 1 |
+| Canonical zonation markers | 9/9, correct in all 8 live donors | Fig 1D |
+| Leave-family-out, pooled | 4/4 CYP, 2/2 urea-cycle, 1/1 GLUL | Fig 1E |
+| Leave-family-out, per donor | 7/8 CYP (M8), 6/8 urea-cycle (M5, M7 miss CPS1), 8/8 GLUL | Fig S2 |
+| Independent-axis check | 8/9 markers recover; CPS1 the traceable miss | Fig 1E |
+| Cross-donor gradient correlation | mean off-diagonal r = 0.873; minimum 0.770 (M3-M7) | Fig 1F |
+
+## Cross-modality reproducibility
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Cross-platform, donor M2 | 14/14 high-confidence sign agreement; rank ρ = 0.83 | Fig 2A |
+| Cross-platform, donor M6 | 13/14; ρ = 0.90 | Fig 2A |
+| Cross-platform, pooled | 96.9% sign agreement; ρ = 0.86 | Results |
+| Cross-pipeline (slope vs layer difference) | 76.3% sign agreement, n = 3,207 | Fig 2B |
+| Cross-pipeline (8-quantile aggregation) | 75.6%, n = 3,220 | Methods |
+| Cross-pipeline, top magnitude quartile | 78.8% | Fig S3 |
+| Analyst-degrees-of-freedom sweep | 0 sign changes across normalisation, mt-fraction and bin count | Fig S8 |
+| Sign-of-correlation baseline | 63/66 agreement; signed-magnitude ρ = 0.96 | Fig 2C |
+
+## Phenomenological coefficient matrix
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Effective rank | 46/66 at N = 50 bins; 66/66 at N = 100 | Fig 3A |
+| Bootstrap stable-entry fraction | 7.69% at N = 50; minimum 5.46% at N = 100 | Fig 3B |
+| Gene-permutation null | mean 10.85%, 95th percentile 12.91% at N = 50 | Fig 3B |
+| Donor-split Frobenius distance ratio | mean 1.413 at N = 50 | Fig 3C |
+| Platform-split entry correlation (M2) | Spearman ρ = 0.020 | Fig 3D |
+| Nullspace dimensionality | 20 at N = 50; 0 at N >= 100 | Fig 3E |
+
+## Steatosis
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Steatosis cohort | 10,399 spots (M1 3,588; P6 3,134; M3 2,448; M2 1,229) | Fig 4 |
+| Robust genes (all six criteria) | GLUL, LYZ, ORM1 | Fig 4A |
+| Lipid tertile cuts | 0.13% and 1.98% | Fig 4B |
+| Supplementary Table 11 calibration, 3 genes | 3/3 sign agreement; signed-magnitude ρ = 1.00 | Fig 4C |
+| Pathway enrichment | Reactome "Drug ADME" NES = -1.80, FDR q = 0.050 | Fig 4D |
+
+## Portal-side acute-phase response
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Weak-FDR-only genes | FBLN1, IGKC, MT1H, SAA1, TPSB2 | Fig S5 |
+| SAA1 interaction coefficient | beta_2 = +0.015 (q = 6.6e-3); leave-M1 beta_2 = +0.038 (p = 0.021) | Fig S6 |
+| SAA1 per-tertile gap | Δ portal = +0.31; Δ central = +0.16 | Fig S6 |
+| Supplementary Table 11 calibration, 7 genes | 6/7 sign agreement; signed-magnitude ρ = 0.82 (p = 0.023) | Results |
+
+## Figures
+
+The four main figures (`fig1`-`fig4`) and the nine supplementary figures
+(`figS1`-`figS9`) all render without error and reproduce the published panels.
+
+## cell2location
+
+Step 10 (cell2location) is GPU-bound. cell2location / scvi-tools training is not
+bitwise-reproducible across GPU runs, so the per-spot hepatocyte fractions - and
+the within-cell-type results that depend on them (Fig S4 and the cell-type
+confound row of Fig S1) - are reported from the cell2location output shipped
+alongside the atlas (see [`data/README.md`](data/README.md)). The threshold
+sweep applied to that input is deterministic.

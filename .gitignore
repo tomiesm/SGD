@@ -1,0 +1,17 @@
+# raw + downloaded data
+data/*
+!data/README.md
+
+# regenerated intermediates
+results/*
+!results/.gitkeep
+
+# figure rasters (PDFs are committed; PNGs are not)
+figures/*.png
+
+# python / tooling
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+*.egg-info/

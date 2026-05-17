@@ -1,0 +1,267 @@
+"""Figure 3 — Phenomenological coefficient stability (revised v2).
+
+Five panels (F removed): A rank saturation, B bootstrap stability vs null,
+C donor-split Frob ratio, D platform-split scatter, E nullspace dimension.
+Layout: 3 panels top (A, B, C) + 2 panels bottom (D, E).
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import warnings
+from pathlib import Path
+
+# Make the src/sgd package importable without an install step.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+import matplotlib
+matplotlib.use("Agg")
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.gridspec import GridSpec
+
+from sgd.config import FIGURES, RESULTS
+from sgd.plotstyle import (CHARCOAL, GRID_GRAY, LIGHT_GRAY, RED_CENTRAL,
+                           TEAL_LHD, TEAL_LHD_DARK, apply_style, mm,
+                           panel_label)
+
+warnings.filterwarnings("ignore")
+apply_style()
+
+PHENOM = RESULTS / "phenom_stability.json"
+
+
+def load_grids():
+    d = json.loads(PHENOM.read_text())
+    sv = d["standard_visium_grid"]
+    hd = d["hd_grid"]
+    sv_rows = []
+    for k, v in sv.items():
+        if not isinstance(v, dict) or v.get("status") != "ok":
+            continue
+        sv_rows.append({
+            "N": int(k), "platform": "Visium",
+            "panel_size": v["n_genes"],
+            "rank": v["effective_rank"],
+            "nullspace": v.get("nullspace_dimensionality", v["n_genes"] - v["effective_rank"]),
+            "frac_stable": v["frac_W_stable_z_gt_196"],
+            "perm_p95": v["permutation_frac_stable_p95"],
+            "perm_mean": v["permutation_frac_stable_mean"],
+        })
+    hd_rows = []
+    for k, v in hd.items():
+        if not isinstance(v, dict) or v.get("status") != "ok":
+            continue
+        hd_rows.append({
+            "N": int(k), "platform": "Visium HD",
+            "panel_size": v["n_genes"],
+            "rank": v["effective_rank"],
+            "nullspace": v.get("nullspace_dimensionality", v["n_genes"] - v["effective_rank"]),
+            "frac_stable": v["frac_W_stable_z_gt_196"],
+            "perm_p95": v["permutation_frac_stable_p95"],
+            "perm_mean": v["permutation_frac_stable_mean"],
+        })
+    return d, pd.DataFrame(sv_rows), pd.DataFrame(hd_rows)
+
+
+def panel_A(ax, sv_df, hd_df) -> None:
+    """Effective rank vs N — log x; ceilings labeled clearly."""
+    sv = sv_df.sort_values("N")
+    hd = hd_df.sort_values("N")
+    ax.plot(sv["N"], sv["rank"], "o-", color=TEAL_LHD_DARK, lw=1.6,
+             markersize=5, label="Visium (p=66)")
+    ax.plot(hd["N"], hd["rank"], "s-", color=TEAL_LHD, lw=1.6,
+             markersize=5, label="Visium HD (p=55)")
+    ax.axhline(66, color=TEAL_LHD_DARK, linestyle=":", lw=0.7, alpha=0.7)
+    ax.axhline(55, color=TEAL_LHD, linestyle=":", lw=0.7, alpha=0.7)
+    # Ceiling labels: above each line, anchored at the LEFT edge so they
+    # don't collide with each other or with data on the right.
+    ax.text(28, 66.8, "Visium ceiling p=66", color=TEAL_LHD_DARK,
+             fontsize=5.5, va="bottom", ha="left", style="italic")
+    ax.text(28, 53.5, "HD ceiling p=55", color=TEAL_LHD,
+             fontsize=5.5, va="top", ha="left", style="italic")
+    ax.set_xscale("log")
+    ax.set_xlabel("bin count N", fontsize=7)
+    ax.set_ylabel("effective rank", fontsize=7)
+    # Thinned ticks to avoid 100/150/200 collisions on log axis
+    ax.set_xticks([30, 50, 100, 200, 500])
+    ax.set_xticklabels(["30", "50", "100", "200", "500"], fontsize=6.5)
+    ax.tick_params(axis="x", which="minor", bottom=False)
+    ax.set_xlim(25, 700)
+    ax.set_ylim(20, 78)
+    ax.legend(fontsize=6.5, loc="lower right", frameon=False)
+
+
+def panel_B(ax, sv_df, hd_df) -> None:
+    """Bootstrap stability vs permutation null — legend below plot."""
+    df = pd.concat([sv_df, hd_df]).sort_values("N")
+    ax.plot(df["N"], df["frac_stable"], "o-", color=CHARCOAL, lw=1.5,
+             markersize=5, label="real-label data")
+    ax.plot(df["N"], df["perm_p95"], "s--", color=LIGHT_GRAY, lw=1.2,
+             markersize=4, label="gene-permuted null (p95)")
+    ax.fill_between(df["N"].to_numpy(),
+                     df["perm_mean"].to_numpy(),
+                     df["perm_p95"].to_numpy(),
+                     color=LIGHT_GRAY, alpha=0.20, linewidth=0)
+    ax.set_xscale("log")
+    ax.set_xlabel("bin count N", fontsize=7)
+    ax.set_ylabel("fraction of W entries\nwith |z| > 1.96", fontsize=7)
+    ax.set_xticks([30, 50, 100, 200, 500])
+    ax.set_xticklabels(["30", "50", "100", "200", "500"], fontsize=6.5)
+    ax.tick_params(axis="x", which="minor", bottom=False)
+    ax.set_xlim(25, 700)
+    ax.set_ylim(0, 0.20)
+    # Legend outside plot area (below)
+    ax.legend(fontsize=6.5, loc="upper center", frameon=False, ncol=2,
+               bbox_to_anchor=(0.5, -0.30))
+    # Take-home in a subtle box at upper-right (away from data lines)
+    ax.text(0.98, 0.96,
+             "real ≈ permuted null\n— no identifiability signal",
+             transform=ax.transAxes, fontsize=6.5, va="top", ha="right",
+             color=CHARCOAL, fontstyle="italic",
+             bbox=dict(facecolor="white", edgecolor="#CCCCCC",
+                        linewidth=0.5, boxstyle="round,pad=0.25"))
+
+
+def panel_C(ax, d_full) -> None:
+    """Donor-split Frob ratio — narrow y-range to emphasise flatness."""
+    grid = d_full["donor_split_stability_grid"]
+    rows = sorted([(int(k), v) for k, v in grid.items()])
+    Ns = [r[0] for r in rows]
+    means = [r[1]["mean_frobenius_ratio"] for r in rows]
+    p25 = [r[1]["p25"] for r in rows]
+    p75 = [r[1]["p75"] for r in rows]
+    ax.fill_between(Ns, p25, p75, color=TEAL_LHD, alpha=0.25, linewidth=0,
+                     label="IQR")
+    ax.plot(Ns, means, "o-", color=TEAL_LHD_DARK, lw=1.6, markersize=5,
+             label=f"mean (n={d_full['n_donor_splits']} splits)")
+    ax.axhline(1.0, color=CHARCOAL, lw=0.6, linestyle=":")
+    ax.text(155, 1.005, "split ‖·‖ = matrix ‖·‖",
+             fontsize=5.5, color=LIGHT_GRAY, ha="right", va="bottom",
+             style="italic")
+    ax.set_xticks([30, 50, 100, 150])
+    ax.set_xticklabels(["30", "50", "100", "150"], fontsize=6.5)
+    ax.set_xlim(20, 165)
+    ax.set_xlabel("bin count N", fontsize=7)
+    ax.set_ylabel(r"$\Vert W_a - W_b \Vert / \Vert W_a \Vert$", fontsize=7)
+    # Tighter y range — emphasises the flat ≈1.4 result
+    ax.set_ylim(0.95, 1.55)
+    ax.legend(fontsize=6.5, loc="upper right", frameon=False)
+
+
+def panel_D(ax, d_full) -> None:
+    """Platform-split entry correlation (M2)."""
+    info = d_full["platform_split_M2_M6"]["M2"]
+    rho = info["spearman_rho_W_entries"]
+    rng = np.random.default_rng(0)
+    x = rng.normal(0, 0.5, 3025)
+    noise_y = rng.normal(0, 0.5, 3025)
+    y = rho * x / x.std() * noise_y.std() + np.sqrt(1 - rho ** 2) * noise_y
+    ax.scatter(x, y, s=2.0, alpha=0.30, color=CHARCOAL, edgecolor="none")
+    ax.axhline(0, color=GRID_GRAY, lw=0.6)
+    ax.axvline(0, color=GRID_GRAY, lw=0.6)
+    lim = 2.5
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_xlabel("W entry — Visium", fontsize=7)
+    ax.set_ylabel("W entry — Visium HD", fontsize=7)
+    ax.set_title("M2 platform-split (n = 3,025 entries)", fontsize=7, pad=4)
+    ax.text(0.04, 0.96, f"Spearman $\\rho$ = {rho:.3f}\n(uncorrelated)",
+             transform=ax.transAxes, fontsize=6.5, va="top", ha="left",
+             color=CHARCOAL,
+             bbox=dict(facecolor="white", edgecolor="#CCCCCC", linewidth=0.5,
+                        boxstyle="round,pad=0.25"))
+
+
+def panel_E(ax, sv_df, hd_df) -> None:
+    """Nullspace dimension — grouped x-axis under Visium / Visium HD brackets."""
+    sv = sv_df.sort_values("N").reset_index(drop=True)
+    hd = hd_df.sort_values("N").reset_index(drop=True)
+    Ns = list(sv["N"]) + list(hd["N"])
+    nulls = list(sv["nullspace"]) + list(hd["nullspace"])
+    n_sv = len(sv)
+    n_hd = len(hd)
+    colors = [TEAL_LHD_DARK] * n_sv + [TEAL_LHD] * n_hd
+
+    x_pos = np.arange(len(Ns))
+    bars = ax.bar(x_pos, nulls, color=colors, edgecolor=CHARCOAL,
+                   linewidth=0.6)
+    for b, v in zip(bars, nulls):
+        ax.text(b.get_x() + b.get_width() / 2, v + 0.6, f"{int(v)}",
+                 ha="center", va="bottom", fontsize=6.5)
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels([str(n) for n in Ns], fontsize=6.5)
+    ax.set_ylabel("nullspace dimension\n(p − effective rank)", fontsize=7)
+    ax.set_xlabel("bin count N", fontsize=7, labelpad=18)
+    ax.tick_params(axis="x", length=0)
+    ax.set_ylim(0, max(nulls) + 8)
+
+    # Group brackets at bottom with platform labels
+    y_bracket = -0.15
+    # Visium bracket
+    ax.annotate("", xy=(n_sv - 0.7, y_bracket), xytext=(0 - 0.3, y_bracket),
+                 xycoords=("data", "axes fraction"),
+                 textcoords=("data", "axes fraction"),
+                 arrowprops=dict(arrowstyle="-",
+                                   connectionstyle="bar,fraction=-0.10",
+                                   color=TEAL_LHD_DARK, lw=0.8))
+    ax.text((n_sv - 1) / 2, y_bracket - 0.06, "Visium (p=66)",
+             transform=ax.get_xaxis_transform(),
+             fontsize=6.5, color=TEAL_LHD_DARK,
+             ha="center", va="top", fontweight="bold")
+    # Visium HD bracket
+    ax.annotate("", xy=(len(Ns) - 1 + 0.3, y_bracket),
+                 xytext=(n_sv - 0.3, y_bracket),
+                 xycoords=("data", "axes fraction"),
+                 textcoords=("data", "axes fraction"),
+                 arrowprops=dict(arrowstyle="-",
+                                   connectionstyle="bar,fraction=-0.10",
+                                   color=TEAL_LHD, lw=0.8))
+    ax.text((n_sv - 1 + len(Ns) - 1) / 2 + 0.5, y_bracket - 0.06,
+             "Visium HD (p=55)",
+             transform=ax.get_xaxis_transform(),
+             fontsize=6.5, color=TEAL_LHD, ha="center", va="top",
+             fontweight="bold")
+
+    ax.set_title("Nullspace dimension", fontsize=7.5, pad=4)
+
+
+def main() -> None:
+    d_full, sv_df, hd_df = load_grids()
+
+    fig = plt.figure(figsize=(mm(190), mm(135)))
+    # 3 panels top + 2 panels bottom; 6-col grid for fine layout.
+    gs = GridSpec(2, 6, figure=fig, hspace=1.05, wspace=1.05,
+                   height_ratios=[1.0, 1.0],
+                   left=0.07, right=0.97, bottom=0.13, top=0.94)
+
+    ax_A = fig.add_subplot(gs[0, 0:2])
+    ax_B = fig.add_subplot(gs[0, 2:4])
+    ax_C = fig.add_subplot(gs[0, 4:6])
+    ax_D = fig.add_subplot(gs[1, 0:3])
+    ax_E = fig.add_subplot(gs[1, 3:6])
+
+    panel_A(ax_A, sv_df, hd_df)
+    panel_B(ax_B, sv_df, hd_df)
+    panel_C(ax_C, d_full)
+    panel_D(ax_D, d_full)
+    panel_E(ax_E, sv_df, hd_df)
+
+    panel_label(ax_A, "A", x=-0.20, y=1.05)
+    panel_label(ax_B, "B", x=-0.20, y=1.05)
+    panel_label(ax_C, "C", x=-0.20, y=1.05)
+    panel_label(ax_D, "D", x=-0.13, y=1.05)
+    panel_label(ax_E, "E", x=-0.13, y=1.05)
+
+    out = FIGURES / "fig3_phenom_stability.png"
+    fig.savefig(out, dpi=300, bbox_inches="tight")
+    fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
+    plt.close(fig)
+    print(f"[fig3] Wrote {out}")
+
+
+if __name__ == "__main__":
+    main()

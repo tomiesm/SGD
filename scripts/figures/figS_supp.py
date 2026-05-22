@@ -326,16 +326,17 @@ def figS2():
 
     x = np.arange(len(variants))
     bw = 0.36
-    ax_D.bar(x - bw / 2, pooled_frac, width=bw, color=TEAL_LHD,
+    off = bw / 2 + 0.03      # paired-bar centre offset (+0.03 opens a small gap)
+    ax_D.bar(x - off, pooled_frac, width=bw, color=TEAL_LHD,
               edgecolor=CHARCOAL, linewidth=0.5, label="pooled")
-    ax_D.bar(x + bw / 2, min_donor_frac, width=bw, color=OCHRE_P,
+    ax_D.bar(x + off, min_donor_frac, width=bw, color=OCHRE_P,
               edgecolor=CHARCOAL, linewidth=0.5, label="min per-donor")
     for i, p in enumerate(pooled_frac):
-        ax_D.text(i - bw / 2, p + 0.02, f"{p:.2f}", ha="center",
+        ax_D.text(i - off, p + 0.02, f"{p:.2f}", ha="center",
                    fontsize=6, color=CHARCOAL)
     for i, m in enumerate(min_donor_frac):
         col = OCHRE_P_DARK if m < 1.0 else CHARCOAL
-        ax_D.text(i + bw / 2, m + 0.02, f"{m:.2f}", ha="center",
+        ax_D.text(i + off, m + 0.02, f"{m:.2f}", ha="center",
                    fontsize=6, color=col, fontweight="bold" if m < 1.0 else "normal")
     ax_D.set_xticks(x)
     ax_D.set_xticklabels(variants, fontsize=6.5)
@@ -422,9 +423,9 @@ def figS3():
 def figS4():
     """Within-cell-type robustness using cell2location."""
     add = json.loads(C2LADD.read_text())
-    fig = plt.figure(figsize=(mm(180), mm(80)))
+    fig = plt.figure(figsize=(mm(192), mm(104)))
     gs = GridSpec(1, 3, figure=fig, wspace=0.50,
-                   left=0.10, right=0.97, bottom=0.18, top=0.85)
+                   left=0.085, right=0.985, bottom=0.20, top=0.80)
     ax_A = fig.add_subplot(gs[0, 0])
     ax_B = fig.add_subplot(gs[0, 1])
     ax_C = fig.add_subplot(gs[0, 2])
@@ -434,16 +435,21 @@ def figS4():
     vals = hep["hep_fraction_c2l"].dropna().to_numpy()
     ax_A.hist(vals, bins=60, color=TEAL_LHD, alpha=0.75, edgecolor=CHARCOAL,
                 linewidth=0.4)
-    thresh_specs = [(0.40, LIGHT_GRAY), (0.45, RED_CENTRAL), (0.50, CHARCOAL)]
+    # Threshold lines; the three labels are anchored right / centre / left of
+    # their lines so the numbers do not overlap above the histogram.
+    thresh_specs = [(0.40, LIGHT_GRAY, "right"),
+                    (0.45, RED_CENTRAL, "center"),
+                    (0.50, CHARCOAL, "left")]
     y_top = ax_A.get_ylim()[1]
-    for thresh, c in thresh_specs:
+    for thresh, c, ha in thresh_specs:
         ax_A.axvline(thresh, color=c, lw=0.8, linestyle="--")
-        ax_A.text(thresh, y_top * 1.02, f"{thresh:.2f}", color=c, fontsize=6,
-                   ha="center", va="bottom")
+        ax_A.text(thresh, y_top * 1.03, f"{thresh:.2f}", color=c, fontsize=6,
+                   ha=ha, va="bottom")
     ax_A.set_xlabel("c2l hep_fraction", fontsize=7)
     ax_A.set_ylabel("number of spots", fontsize=7)
-    ax_A.set_title(f"all 47,828 spots; max = {vals.max():.2f}", fontsize=7, pad=14)
-    panel_label(ax_A, "A")
+    ax_A.set_title(f"all 47,828 spots; max = {vals.max():.2f}", fontsize=7,
+                    pad=16)
+    panel_label(ax_A, "A", x=0.5, y=1.24, ha="center")
 
     # Panel B: scoreboard at three thresholds
     msb = add.get("multi_threshold_scoreboard", {})
@@ -471,17 +477,17 @@ def figS4():
     xtl = []
     for i, (t, n) in enumerate(zip(thresholds, n_kept)):
         if i == len(thresholds) - 1:
-            xtl.append(f"{t}\n(n={n:,}, top 1.4%)")
+            xtl.append(f"{t}\n(n={n:,})\ntop 1.4%")
         else:
             xtl.append(f"{t}\n(n={n:,})")
-    ax_B.set_xticklabels(xtl, fontsize=6.5)
+    ax_B.set_xticklabels(xtl, fontsize=6)
     ax_B.set_ylabel("n markers correct", fontsize=7)
     ax_B.set_ylim(0, 11)
-    ax_B.legend(fontsize=6, loc="upper center", ncol=2, frameon=False,
-                  bbox_to_anchor=(0.5, 1.18))
-    ax_B.set_title("marker recovery at every threshold", fontsize=7,
-                    pad=22)
-    panel_label(ax_B, "B")
+    # Legend in the headroom inside the panel (it previously overlapped the
+    # title sitting above the axes).
+    ax_B.legend(fontsize=6, loc="upper center", ncol=2, frameon=False)
+    ax_B.set_title("marker recovery at every threshold", fontsize=7, pad=16)
+    panel_label(ax_B, "B", x=0.5, y=1.24, ha="center")
 
     # Panel C: composition vs axis correlation per LHD donor
     confound = add.get("confound_4_per_sample", {})
@@ -492,16 +498,18 @@ def figS4():
     ax_C.bar(donors, rs, color=cb, edgecolor=CHARCOAL, linewidth=0.5)
     ax_C.axhline(0.3, color=RED_CENTRAL, lw=0.5, linestyle=":")
     ax_C.axhline(-0.3, color=RED_CENTRAL, lw=0.5, linestyle=":")
-    ax_C.text(0.98, 0.96, "±0.3 §4.6 trigger", color=RED_CENTRAL, fontsize=5.5,
+    ax_C.text(0.98, 0.92, "±0.3 §4.6 trigger", color=RED_CENTRAL, fontsize=5.5,
                 transform=ax_C.transAxes, ha="right", va="top")
     ax_C.set_ylabel("r(s, hep_fraction)", fontsize=7)
     ax_C.tick_params(axis="x", labelsize=6.5)
+    # Two-line title so it fits within the panel width.
     ax_C.set_title(
-        f"composition along axis: max |r| = "
-        f"{add.get('confound_4_cohort_max_abs_r', 0):.2f} (M6) < 0.3 trigger",
-        fontsize=6.5, pad=4,
+        "composition along axis\n"
+        f"max |r| = {add.get('confound_4_cohort_max_abs_r', 0):.2f} "
+        f"(M6) < 0.3 trigger",
+        fontsize=6.0, pad=16,
     )
-    panel_label(ax_C, "C")
+    panel_label(ax_C, "C", x=0.5, y=1.24, ha="center")
 
     fig.savefig(FIGURES / "figS4_celltype.png", dpi=300, bbox_inches="tight")
     fig.savefig(FIGURES / "figS4_celltype.pdf", bbox_inches="tight")

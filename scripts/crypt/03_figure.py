@@ -105,8 +105,8 @@ def panel_a(ax, a1: dict):
     ]
     labels = ["expected ↓ (crypt-high)", "expected ↑ (tip-high)",
               "sign mismatch"]
-    ax.legend(handles, labels, loc="lower right", frameon=False,
-              fontsize=6, handlelength=1.4)
+    ax.legend(handles, labels, loc="upper right", bbox_to_anchor=(1.0, 1.0),
+              frameon=False, fontsize=6, handlelength=1.4)
     plotstyle.panel_label(ax, "A")
 
 

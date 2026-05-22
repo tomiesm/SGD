@@ -522,7 +522,7 @@ def figS4():
 def figS5():
     """Steatosis volcano + weak-1 + |β₂| distribution."""
     df = pd.read_parquet(CRITERIA)
-    fig = plt.figure(figsize=(mm(180), mm(80)))
+    fig = plt.figure(figsize=(mm(184), mm(96)))
     gs = GridSpec(1, 3, figure=fig, wspace=0.5,
                    left=0.08, right=0.97, bottom=0.20, top=0.85)
     ax_A = fig.add_subplot(gs[0, 0])
@@ -572,24 +572,32 @@ def figS5():
     # not an ordered axis
     weak_palette = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00"]
     mt1h_xy = None
+    all_vals = []
     for i, (_, row) in enumerate(weak.iterrows()):
         vals = [row[c] for c in cols]
+        all_vals.extend(vals)
         ax_B.plot(x, vals, "o-", color=weak_palette[i % len(weak_palette)],
                    lw=1.2, markersize=4, label=row["gene"])
         if row["gene"] == "MT1H":
             # x=2 is the −M1 column (full, −P6, −M1, −M2, −M3)
             mt1h_xy = (2, row["beta_2_leave_m1"])
     ax_B.axhline(0, color=CHARCOAL, lw=0.5)
+    # Headroom above and below the curves: the legend goes in the clear top
+    # band and the MT1H note in the clear bottom band, off the lines.
+    lo, hi = min(all_vals), max(all_vals)
+    span = hi - lo
+    ax_B.set_ylim(lo - 0.46 * span, hi + 0.46 * span)
     if mt1h_xy is not None:
-        ax_B.annotate("MT1H sign-flips\nat −M1",
-                       xy=mt1h_xy, xytext=(15, 18),
-                       textcoords="offset points", fontsize=6,
-                       color=CHARCOAL, ha="left",
+        ax_B.annotate("MT1H sign-flips at −M1",
+                       xy=mt1h_xy, xytext=(2.0, lo - 0.30 * span),
+                       textcoords="data", fontsize=6, color=CHARCOAL,
+                       ha="center", va="center",
                        arrowprops=dict(arrowstyle="-", lw=0.5,
                                         color=CHARCOAL))
     ax_B.set_xticks(x); ax_B.set_xticklabels(col_labels, fontsize=6.5)
     ax_B.set_ylabel(r"$\beta_2$", fontsize=8)
-    ax_B.legend(fontsize=5.5, loc="lower right", frameon=False, ncol=2)
+    ax_B.legend(fontsize=5.5, loc="upper center", frameon=False, ncol=3,
+                  columnspacing=1.2)
     ax_B.set_title("weak-1 genes (criterion 1 only)", fontsize=7, pad=4)
     panel_label(ax_B, "B")
 
@@ -604,8 +612,8 @@ def figS5():
     if len(abs_b2) >= 3:
         y_top = abs_b2[0] * 1.15
         ax_C.plot([0, 2], [y_top, y_top], color=RED_CENTRAL, lw=0.6)
-        ax_C.text(1, y_top * 1.02, "ranks 1-3 = robust",
-                   color=RED_CENTRAL, fontsize=5.5, ha="center", va="bottom")
+        ax_C.text(0, y_top * 1.04, "ranks 1-3 = robust",
+                   color=RED_CENTRAL, fontsize=5.5, ha="left", va="bottom")
         ax_C.set_ylim(0, y_top * 1.18)
     # Inline mini-legend
     handles = [
@@ -901,6 +909,9 @@ def figS7():
         ax_B.set_xticks(x)
         ax_B.set_xticklabels(genes, fontsize=6.5, fontstyle="italic")
         ax_B.axhline(0, color=CHARCOAL, lw=0.5, zorder=1)
+        # Extend the top of the axis so the legend and the shading key sit
+        # in clear headroom above the bars.
+        ax_B.set_ylim(top=ax_B.get_ylim()[1] + 0.2)
         ax_B.set_ylabel("metric value (a.u.)", fontsize=7)
         ax_B.legend(fontsize=6, frameon=False, loc="upper left")
         ax_B.text(0.98, 0.97,

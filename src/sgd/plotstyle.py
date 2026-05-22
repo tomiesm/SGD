@@ -104,9 +104,10 @@ ONE_HALF_COL_W = mm(140)
 DOUBLE_COL_W = mm(180)
 
 
-def panel_label(ax, label: str, x: float = -0.15, y: float = 1.05):
+def panel_label(ax, label: str, x: float = -0.15, y: float = 1.05,
+                ha: str = "left"):
     ax.text(x, y, label, transform=ax.transAxes, fontsize=10, fontweight="bold",
-            va="bottom", ha="left")
+            va="bottom", ha=ha)
 
 
 def axis_orientation_strip(ax, y_offset: float = -0.18):

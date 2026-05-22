@@ -306,7 +306,7 @@ def figS2():
         n_total = sub.get("n_evaluated_pooled")
         ax.set_title(f"{name}\npooled {n_correct}/{n_total}",
                       fontsize=7.5, pad=4)
-        panel_label(ax, "ABC"[k], x=-0.30, y=1.08)
+        panel_label(ax, "ABC"[k], x=0.5, y=1.22, ha="center")
 
     # Panel D: pooled vs minimum per-donor recovery, side-by-side bars.
     ax_D = fig.add_subplot(gs[0, 9:12])
@@ -347,7 +347,7 @@ def figS2():
     ax_D.tick_params(axis="both", labelsize=6.5)
     ax_D.grid(axis="y", alpha=0.3)
     ax_D.set_axisbelow(True)
-    panel_label(ax_D, "D", x=-0.18, y=1.08)
+    panel_label(ax_D, "D", x=0.5, y=1.22, ha="center")
 
     fig.savefig(FIGURES / "figS2_tier1.png", dpi=300, bbox_inches="tight")
     fig.savefig(FIGURES / "figS2_tier1.pdf", bbox_inches="tight")

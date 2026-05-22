@@ -343,7 +343,7 @@ def figS2():
     ax_D.set_ylabel("fraction of held-out\nmarkers recovered", fontsize=7)
     ax_D.set_title("pooled vs minimum per-donor",
                     fontsize=7.5, pad=4)
-    ax_D.legend(fontsize=6, loc="lower right", frameon=False)
+    ax_D.legend(fontsize=6, loc="upper right", frameon=False)
     ax_D.tick_params(axis="both", labelsize=6.5)
     ax_D.grid(axis="y", alpha=0.3)
     ax_D.set_axisbelow(True)

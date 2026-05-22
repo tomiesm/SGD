@@ -104,6 +104,18 @@ manuscript's current draft uses a non-contiguous numbering (S1, S2, S4-S8, S12,
 S13). The content mapping is fixed and one-to-one - see the `figS_supp.py`
 docstring.
 
+## Second-tissue validation - `scripts/crypt/`
+
+Independent of the liver pipeline above; reads only the Moor *et al.* (2018)
+crypt-villus zonation table (see [`data/README.md`](data/README.md)). Steps 01
+and 02 write `results/moor_crypt_results.json`; step 03 renders the figure.
+
+| Artifact | Producer | Description | Manuscript |
+|---|---|---|---|
+| `moor_crypt_results.json` (`analysis1_marker_recovery` block) | `crypt/01_marker_recovery.py` | OLS slope on the 7-zone crypt-villus axis for 15 canonical markers; filtered-gene background population | **Fig S10A** |
+| `moor_crypt_results.json` (`analysis2_W_nonidentifiability` block) | `crypt/02_wmatrix_stability.py` | W-matrix diagnostics on the 20 most spatially variable genes: PCA effective dimensionality, ridge fit, block-bootstrap stable fraction, gene-permutation null | **Fig S10B** |
+| `figures/figS10_crypt_validation.pdf` | `crypt/03_figure.py` | Two-panel crypt-villus validation figure | **Fig S10** |
+
 ## Notes
 
 - **Rebuilt orphans.** `d11_spatial_patterns_called8.json`,

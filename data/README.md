@@ -43,7 +43,20 @@ from the Yakubovsky GitHub repository (`OranYak/Human-liver`). Clone or
 download that repo and point the inventory step at its `Loupe_categories/`
 directory.
 
-## 4. Expected layout
+## 4. Moor 2018 intestinal crypt-villus (second-tissue validation)
+
+`scripts/crypt/` validates the framework on a second tissue, the mouse
+intestinal crypt-villus axis. It reads the laser-capture-microdissection
+zonation reconstruction of Moor *et al.* 2018, published on Zenodo:
+
+> **DOI: [10.5281/zenodo.3403670](https://doi.org/10.5281/zenodo.3403670)**
+
+Download `table_D_zonation_reconstruction.tsv` (per-zone mean expression for
+27,998 genes across seven crypt-villus zones, with a per-gene zone-dependence
+*q*-value) and place it directly under `data/`. It is the only input the
+`scripts/crypt/` steps need, and is independent of the liver atlas above.
+
+## 5. Expected layout
 
 ```
 data/
@@ -52,6 +65,7 @@ data/
 ├── obs_hep_fraction_c2l.parquet        cached cell2location output (Zenodo ancillary)
 ├── <raw Visium h5 + tissue_positions CSVs>     (Zenodo)
 ├── <Visium HD h5ad files: M1 / M2 / M6>        (Zenodo)
+├── table_D_zonation_reconstruction.tsv  Moor 2018 crypt-villus zonation (Zenodo)
 ├── Loupe_categories/                   Yakubovsky lipid CSVs (GitHub)
 └── 41586_2026_10377_MOESM1_ESM/
     └── 2025-01-01424E-s1/

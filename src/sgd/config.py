@@ -53,3 +53,12 @@ STEATOTIC_SAMPLES = ("M1", "M2", "M3", "P6")
 # Steatotic donors — alias of STEATOTIC_SAMPLES; legacy Stage D used this
 # name (M1 + M2 + M3 are LHD; P6 is P-cohort).
 STEATOTIC_DONORS = ("M1", "M2", "M3", "P6")
+
+# ---------------------------------------------------------------------------
+# Moor 2018 intestinal crypt-villus (second-tissue validation)
+# ---------------------------------------------------------------------------
+
+# Moor et al. 2018 laser-capture-microdissection crypt-villus zonation
+# reconstruction; table_D is the per-zone mean-expression table.
+MOOR_ZENODO_DOI = "10.5281/zenodo.3403670"
+MOOR_TABLE_D = DATA / "table_D_zonation_reconstruction.tsv"

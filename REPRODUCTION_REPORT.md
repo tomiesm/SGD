@@ -3,7 +3,8 @@
 Running the pipeline documented in [`README.md`](README.md) on the Yakubovsky
 2026 live-donor liver atlas reproduces every reported number and figure of the
 manuscript. The tables below give the value produced by each analysis step; each
-matches the corresponding value in the manuscript.
+matches the corresponding value in the manuscript. The final section covers the
+second-tissue validation, which runs on a separate dataset (Moor *et al.* 2018).
 
 ## Pipeline and axis validation
 
@@ -59,10 +60,25 @@ matches the corresponding value in the manuscript.
 | SAA1 per-tertile gap | Δ portal = +0.31; Δ central = +0.16 | Fig S6 |
 | Supplementary Table 11 calibration, 7 genes | 6/7 sign agreement; signed-magnitude ρ = 0.82 (p = 0.023) | Results |
 
+## Second-tissue validation (intestinal crypt-villus)
+
+`scripts/crypt/` runs the framework on the Moor *et al.* (2018) intestinal
+crypt-villus zonation reconstruction, a second tissue independent of the
+liver atlas.
+
+| Quantity | Reproduced value | Manuscript |
+|---|---|---|
+| Canonical crypt-villus markers | 15/15 recover the literature-expected slope direction | Fig S10A |
+| Gene filter | 9,241 genes pass (mean zone expression above 25th percentile, q < 0.05) | Methods |
+| W effective dimensionality | 2 components capture 95% of the 7-zone trajectory variance | Fig S10B |
+| W bootstrap stable-entry fraction | empirical 0.585; gene-permutation null mean 0.604, p95 0.676 | Fig S10B |
+
 ## Figures
 
 The four main figures (`fig1`-`fig4`) and the nine supplementary figures
 (`figS1`-`figS9`) all render without error and reproduce the published panels.
+The second-tissue validation figure (`figS10_crypt_validation.pdf`) renders
+from `scripts/crypt/03_figure.py`.
 
 ## cell2location
 

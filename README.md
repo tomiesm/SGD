@@ -44,7 +44,8 @@ sgd_replication/
 ├── figures/               final manuscript figure PDFs
 ├── src/sgd/               9 importable modules (shared computation)
 └── scripts/               14 analysis entry points, run-ordered 01-14
-    └── figures/           5 figure-rendering scripts
+    ├── figures/           5 figure-rendering scripts
+    └── crypt/             second-tissue validation (Moor 2018 crypt-villus)
 ```
 
 ## Installation
@@ -76,6 +77,10 @@ The input data is **not** in this repository. Download it before running:
   supplementary information.
 - **Yakubovsky GitHub lipid annotations** - `Loupe_categories/` from the
   `OranYak/Human-liver` repository.
+- **Moor 2018 intestinal crypt-villus** - Zenodo
+  [`10.5281/zenodo.3403670`](https://doi.org/10.5281/zenodo.3403670): the
+  laser-capture-microdissection crypt-villus zonation table, used by the
+  second-tissue validation (`scripts/crypt/`).
 
 Place everything under `data/` as described in
 [`data/README.md`](data/README.md).
@@ -109,6 +114,23 @@ step 10 needs 2 + 4; step 11 needs 2 + 5; steps 12 and 13 need 11; step 14 needs
 11. The figure scripts run after all analysis steps. Steps 3, 4 and 10 are the
 only ones a pure-Visium replicator can skip - skipping them drops Fig 2A,
 Fig 3D, Fig S4 and the C4 row of Fig S1.
+
+## Second-tissue validation (intestinal crypt-villus)
+
+`scripts/crypt/` applies the framework to a second tissue - the mouse
+intestinal crypt-villus axis - as an independent check. It reads only the
+Moor et al. (2018) laser-capture-microdissection zonation table (see
+[`data/README.md`](data/README.md)) and has no dependency on the liver
+pipeline above.
+
+| # | Command | Output |
+|---|---|---|
+| 1 | `python scripts/crypt/01_marker_recovery.py` | Marker recovery for 15 canonical markers on the 7-zone axis |
+| 2 | `python scripts/crypt/02_wmatrix_stability.py` | W-matrix non-identifiability diagnostics |
+| 3 | `python scripts/crypt/03_figure.py` | Renders **Fig S10** |
+
+Steps 1 and 2 run in either order and write `results/moor_crypt_results.json`;
+step 3 reads that file and renders `figures/figS10_crypt_validation.pdf`.
 
 ## Outputs
 

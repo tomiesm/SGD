@@ -6,6 +6,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from statsmodels.formula.api import ols
+from statsmodels.stats.multitest import multipletests
 
 from sgd.config import STEATOTIC_DONORS
 
@@ -157,6 +158,76 @@ def per_gene_full(idx: int, gene: str, X_col: np.ndarray,
         "p_2_leave_m3": leave_m3.get("p_2"),
         "leave_m3_status": leave_m3.get("status"),
     }
+
+
+def apply_calling_rule(
+    df: pd.DataFrame,
+    fdr_q_threshold: float = 0.05,
+    leave_out_p_threshold: float = 0.05,
+) -> pd.DataFrame:
+    """Apply the six pre-specified steatosis screening criteria.
+
+    ``four_criteria_flag`` is retained as a backward-compatible internal label
+    used by older analysis scripts.  The public-facing ``calling_status``
+    column uses names that reflect the current six-criterion rule.
+    """
+    out = df.copy()
+    n = len(out)
+    ok = out["cohort_status"].astype(str) == "ok"
+    pvals = out["p_2"].to_numpy(dtype=float)
+    qvals = np.full(n, np.nan)
+    finite = np.isfinite(pvals)
+    if finite.any():
+        _, q_finite, _, _ = multipletests(
+            pvals[finite], alpha=fdr_q_threshold, method="fdr_bh"
+        )
+        qvals[finite] = q_finite
+    out["q_2"] = qvals
+    out["criterion_1"] = (qvals < fdr_q_threshold) & ok
+
+    cohort_sign = np.sign(out["beta_2"].to_numpy(dtype=float))
+    donor_match = np.ones(n, dtype=bool)
+    for donor in STEATOTIC_DONORS:
+        beta = out[f"beta_2_{donor}"].to_numpy(dtype=float)
+        donor_match &= np.isfinite(beta) & (np.sign(beta) == cohort_sign)
+    out["criterion_2"] = donor_match & ok
+
+    for criterion, donor in enumerate(("P6", "M1", "M2", "M3"), start=3):
+        tag = donor.lower()
+        status = out[f"leave_{tag}_status"].astype(str) == "ok"
+        beta = out[f"beta_2_leave_{tag}"].to_numpy(dtype=float)
+        pval = out[f"p_2_leave_{tag}"].to_numpy(dtype=float)
+        out[f"criterion_{criterion}"] = (
+            status
+            & np.isfinite(beta)
+            & (np.sign(beta) == cohort_sign)
+            & (pval < leave_out_p_threshold)
+            & ok
+        )
+
+    c = [out[f"criterion_{i}"].to_numpy(dtype=bool) for i in range(1, 7)]
+    all_six = np.logical_and.reduce(c)
+    first_two = c[0] & c[1]
+    flag = np.full(n, "null_0", dtype=object)
+    flag[c[0]] = "weak_1"
+    flag[first_two] = "donor_sensitive_12"
+    flag[all_six] = "robust_1234"
+    out["four_criteria_flag"] = flag
+    out["calling_status"] = pd.Series(flag, index=out.index).map({
+        "robust_1234": "robust_all_six",
+        "donor_sensitive_12": "donor_sensitive",
+        "weak_1": "criterion_1_only",
+        "null_0": "null",
+    })
+    out["robust_to_any_single_donor"] = all_six
+
+    beta_umi = out["beta_2"].to_numpy(dtype=float)
+    beta_no_umi = out["beta_2_no_umi"].to_numpy(dtype=float)
+    delta = np.abs(beta_no_umi - beta_umi) / np.maximum(np.abs(beta_umi), 1e-9)
+    out["c2_log_umi_delta_relative"] = delta
+    called = np.isin(flag, ("robust_1234", "donor_sensitive_12"))
+    out["c2_log_umi_sensitive"] = (delta > 0.3) & ok.to_numpy() & called
+    return out
 
 
 # ---------------------------------------------------------------------------

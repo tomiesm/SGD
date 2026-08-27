@@ -17,7 +17,7 @@ that each artifact matches the manuscript is in
 | `yakubovsky_reference.json` | `01_inventory.py` | Inventory of the Yakubovsky GitHub lipid CSVs | (input inventory) |
 | `visium_human.h5ad` | `02_load_visium.py` | 16-sample Visium AnnData; QC, total-count norm+log1p, raw counts in `layers`, strict-66 panel flag. Updated in place by steps 05/07/11. | §Pre-processing; R1.1 (47,828 spots) |
 | `visium_hd.h5ad` | `03_load_visium_hd.py` | Visium HD AnnData (M2/M6 integrated + M1 raw 8 µm bins) | §Pre-processing (Visium HD) |
-| `snrna_ref.h5ad` | `04_load_snrna.py` | Symlink to the integrated snRNA-seq reference; verification block in the inventory | §Within-cell-type (reference) |
+| `snrna_ref.h5ad` | `04_load_snrna.py` | Symlink to the integrated snRNA-seq reference; verification block in the inventory | §Hepatocyte-composition sensitivity (reference) |
 
 ## Axis construction and confound diagnostics - `scripts/05`
 
@@ -41,9 +41,10 @@ that each artifact matches the manuscript is in
 |---|---|---|---|
 | `tier0_scoreboard.json` | `07_axis_validation.py` | Tier 0 - 9 canonical zonation markers, recovery per donor | **Fig 1D**; R1.2 |
 | `tier1_leave_family.json` | `07_axis_validation.py` | Tier 1 - leave-family-out marker recovery | **Fig 1E**, **Fig S2**; R1.3, R1.4 |
-| `cross_donor_correlation.json` | `07_axis_validation.py` | Tier 3 - 8x8 cross-donor gradient correlation matrix | **Fig 1E/1F**; R1.6 |
+| `cross_donor_correlation.json` | `07_axis_validation.py` | Tier 3 - 8x8 cross-donor gradient correlations for the strict 66-gene panel, relaxed 15,192-gene panel, and relaxed-panel top effect-size quartile | **Fig 1E/1F**; R1.6 |
 | `stage_B_variant_B_addendum.json` | `07_axis_validation.py` | Tier 2 - independent (Variant-B) axis; cross-pipeline approach (b) | **Fig 1E**; R1.5 |
 | `stage_B_cross_pipeline_supp_table_2.json` | `07_axis_validation.py` | Cross-pipeline (b) vs Yakubovsky Supp Table 2 | R2.4 |
+| `stage_B_cross_pipeline_supp_table_2_genes.parquet` | `07_axis_validation.py` | Exact 3,207-gene primary cross-pipeline comparison shown in Fig 2B | **Fig 2B**; R2.4 |
 | `headline_candidates.json` | `07_axis_validation.py` | Frozen 23-gene candidate headline set (read by B8/B9) | §Robustness checks |
 | `b7_c1_summary.json`, `b7_joint_table.parquet` | `07_axis_validation.py` | C1 log-UMI adjustment toggle: slopes with/without residualisation | **Fig S9** |
 | `b8_sensitivity.json` | `07_axis_validation.py` | Analyst-degree-of-freedom sweep (normalisation / mt-fraction / bin count) | **Fig S8**; R2.7 |
@@ -61,14 +62,14 @@ that each artifact matches the manuscript is in
 
 | Artifact | Producer | Description | Manuscript |
 |---|---|---|---|
-| `phenom_stability.json` | `09_wmatrix_stability.py` | All six W-matrix diagnostics: effective rank, block-bootstrap stable fraction, permutation null, donor-split Frobenius, platform-split, nullspace dimensionality | **all of Fig 3**; R3.1-R3.7 |
+| `phenom_stability.json` | `09_wmatrix_stability.py` | W-matrix diagnostics: numerical rank, trajectory PCA, descriptive block-bootstrap variability, all 35 unique donor partitions, observed M2/M6 platform splits, and nullspace dimensionality. The invalid response-label permutation is intentionally absent. | **all of Fig 3**; R3.1-R3.7 |
 
-## Within-cell-type validation - `scripts/10`
+## Hepatocyte-composition sensitivity check - `scripts/10`
 
 | Artifact | Producer | Description | Manuscript |
 |---|---|---|---|
-| `obs_hep_fraction_c2l.parquet` | `10_cell2location.py` | Per-spot hepatocyte fraction from cell2location *(GPU pass - also shipped pre-computed; see `data/README.md`)* | §Within-cell-type |
-| `d13_snrna_signatures.parquet` | `10_cell2location.py` | cell2location reference signatures | §Within-cell-type |
+| `obs_hep_fraction_c2l.parquet` | `10_cell2location.py` | Per-spot hepatocyte fraction from cell2location *(GPU pass - also shipped pre-computed; see `data/README.md`)* | §Hepatocyte-composition sensitivity |
+| `d13_snrna_signatures.parquet` | `10_cell2location.py` | cell2location reference signatures | §Hepatocyte-composition sensitivity |
 | `c3_cell2location_addendum.json` | `10_cell2location.py` | Hepatocyte-purity threshold sweep (>0.40/0.45/0.50); confound C4 | **Fig S4**, **Fig S1** (C4 row) |
 
 ## Steatosis - `scripts/11`-`14`
@@ -89,6 +90,15 @@ that each artifact matches the manuscript is in
 | `supp_t6_lhd_p_calibration.json` | `13_calibration.py` | Live-donor vs patient-cohort axis calibration vs Supp Table 6 | **Fig S7** |
 | `d12_gsea_summary.json` | `14_gsea.py` | Pre-ranked GSEA (Hallmark, Reactome) + Enrichr ORA on the 8 called genes | **Fig 4D**; R4.8, R4.9, R5.7 |
 
+## Steatosis robustness - `scripts/15`
+
+| Artifact | Producer | Description | Manuscript |
+|---|---|---|---|
+| `steatosis_wild_bootstrap.parquet`, `supplementary_table_wild_bootstrap.csv` | `15_steatosis_robustness.py` | Full 66-gene restricted-null, CR1-studentized exhaustive wild-cluster results with Webb ($6^4$) and Rademacher ($2^4$) weights and BH correction | **Table S1**; small-cluster calibration |
+| `steatosis_wild_bootstrap_summary.json` | `15_steatosis_robustness.py` | Design, weight grids, p-value/tie conventions, and headline-gene wild-bootstrap results | §Steatosis inference |
+| `steatosis_axis_sensitivity.parquet`, `supplementary_table_axis_sensitivity.csv` | `15_steatosis_robustness.py` | Full 66-gene comparison of baseline coefficients with coefficients after excluding GLUL from the central axis markers | **Table S2**; circularity sensitivity |
+| `steatosis_axis_sensitivity_summary.json` | `15_steatosis_robustness.py` | Coefficient-vector correlations, robust set under the excluded axis, and headline-gene comparisons | §Axis sensitivity |
+
 ## Figures - `scripts/figures/`
 
 | Artifact | Producer | Manuscript |
@@ -98,11 +108,10 @@ that each artifact matches the manuscript is in
 | `figures/fig3_phenom_stability.pdf` | `figures/fig3_phenom_stability.py` | **Figure 3** |
 | `figures/fig4_steatosis.pdf` | `figures/fig4_steatosis.py` | **Figure 4** |
 | `figures/figS1_*.pdf` ... `figS9_*.pdf` | `figures/figS_supp.py` | **Supplementary Figures S1-S9** |
+| `figures/figS10_crypt_validation.pdf` | `crypt/03_figure.py` | **Supplementary Figure S10** |
 
-Supplementary figures are numbered contiguously S1-S9 in this repository; the
-manuscript's current draft uses a non-contiguous numbering (S1, S2, S4-S8, S12,
-S13). The content mapping is fixed and one-to-one - see the `figS_supp.py`
-docstring.
+Supplementary figures are numbered contiguously S1-S10: S1-S9 are rendered by
+`figS_supp.py`, and S10 is the independent crypt-villus validation below.
 
 ## Second-tissue validation - `scripts/crypt/`
 
@@ -113,7 +122,7 @@ and 02 write `results/moor_crypt_results.json`; step 03 renders the figure.
 | Artifact | Producer | Description | Manuscript |
 |---|---|---|---|
 | `moor_crypt_results.json` (`analysis1_marker_recovery` block) | `crypt/01_marker_recovery.py` | OLS slope on the 7-zone crypt-villus axis for 15 canonical markers; filtered-gene background population | **Fig S10A** |
-| `moor_crypt_results.json` (`analysis2_W_nonidentifiability` block) | `crypt/02_wmatrix_stability.py` | W-matrix diagnostics on the 20 most spatially variable genes: PCA effective dimensionality, ridge fit, block-bootstrap stable fraction, gene-permutation null | **Fig S10B** |
+| `moor_crypt_results.json` (`analysis2_W_nonidentifiability` block) | `crypt/02_wmatrix_stability.py` | Trajectory PCA, ridge fit metadata, and descriptive block-bootstrap variability on the 20 most spatially variable genes. No response-label permutation is reported because it leaves matrix-wide stability invariant. | **Fig S10B** |
 | `figures/figS10_crypt_validation.pdf` | `crypt/03_figure.py` | Two-panel crypt-villus validation figure | **Fig S10** |
 
 ## Notes
@@ -125,4 +134,6 @@ and 02 write `results/moor_crypt_results.json`; step 03 renders the figure.
   verified bit-for-bit against the surviving artifacts (REPRODUCTION_REPORT.md).
 - **`visium_human.h5ad`** is written by step 02 and updated in place by steps
   05, 07 and 11. Run the recipe in order so each step sees the expected state.
+- **Verification.** `scripts/16_verify_outputs.py` checks the final cohort and
+  panel sizes, corrected W metadata, full robustness tables, and all 14 PDFs.
 - **MERFISH** is not used by the manuscript and is not loaded by this pipeline.

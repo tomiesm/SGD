@@ -20,7 +20,8 @@ import pandas as pd
 from matplotlib.gridspec import GridSpec
 from scipy.stats import pearsonr
 
-from sgd.config import FIGURES, RESULTS, SUPP_T2
+from sgd.config import FIGURES, RESULTS
+from sgd.gradient import N_BINS_DEFAULT
 from sgd.plotstyle import (BLUE_PORTAL, CHARCOAL, GRID_GRAY, LIGHT_GRAY,
                            RED_CENTRAL, TEAL_LHD, TEAL_LHD_DARK, apply_style,
                            marker_color, mm, panel_label)
@@ -33,6 +34,7 @@ CROSS_PIPE = RESULTS / "cross_pipeline_reproducibility.json"
 SIGN_BASE = RESULTS / "sign_correlation_baseline.json"
 B8 = RESULTS / "b8_sensitivity.json"
 PER_GRAD = RESULTS / "per_gene_gradient.parquet"
+CROSS_PIPE_GENES = RESULTS / "stage_B_cross_pipeline_supp_table_2_genes.parquet"
 
 MARKERS_CENTRAL = ("CYP2E1", "CYP1A2", "GLUL", "CYP3A4")
 MARKERS_PORTAL = ("SDS", "ASS1", "CYP2A6", "HAL", "CPS1")
@@ -102,42 +104,12 @@ def panel_A(ax_left, ax_right) -> None:
         ax.set_xlim(*lim); ax.set_ylim(*lim)
 
 
-def _load_t2_q005():
-    """Return DataFrame indexed by gene with column 'layer_diff' for the
-    q<0.05 subset of Supp T2."""
-    t2 = pd.read_excel(SUPP_T2, sheet_name="mean zonation of non steatotic",
-                        header=1)
-    t2.columns = [str(c).strip() for c in t2.columns]
-    if "gene_name" in t2.columns:
-        t2 = t2.set_index("gene_name")
-    elif "Gene_Name" in t2.columns:
-        t2 = t2.set_index("Gene_Name")
-    for c in ("mean_zone_1", "mean_zone_2", "mean_zone_7", "mean_zone_8"):
-        t2[c] = pd.to_numeric(t2[c], errors="coerce")
-    if "qValue" in t2.columns:
-        q = pd.to_numeric(t2["qValue"], errors="coerce")
-        t2 = t2[q < 0.05]
-    diff = (t2[["mean_zone_1", "mean_zone_2"]].mean(axis=1)
-             - t2[["mean_zone_7", "mean_zone_8"]].mean(axis=1))
-    diff = diff.rename("layer_diff")
-    diff = diff[~diff.index.duplicated()].dropna()
-    return diff
-
-
 def panel_B(ax) -> None:
-    """Cross-pipeline scatter on Supp T2 q<0.05 subset (~3,200 genes)."""
-    diff = _load_t2_q005()
-    df = pd.read_parquet(PER_GRAD)
-    cohort = df[(df["scope"] == "cohort") & (df["donor"].isna())
-                 & (df["panel"] == "relaxed")
-                 & (df["axis"] == "s")][["gene", "slope"]].drop_duplicates("gene")
-    common = sorted(set(cohort["gene"]) & set(diff.index))
-    slope_map = cohort.set_index("gene")["slope"]
-    x = slope_map.reindex(common).to_numpy()
-    y = diff.reindex(common).to_numpy()
-    valid = np.isfinite(x) & np.isfinite(y) & (x != 0) & (y != 0)
-    x, y = x[valid], y[valid]
-    common = [g for g, v in zip(common, valid) if v]
+    """Cross-pipeline scatter for the exact B11 high-confidence gene set."""
+    gene_table = pd.read_parquet(CROSS_PIPE_GENES)
+    x = gene_table["framework_slope"].to_numpy(dtype=float)
+    y = gene_table["published_central_minus_portal"].to_numpy(dtype=float)
+    common = gene_table["gene"].astype(str).tolist()
     is_marker = np.array([g in MARKERS for g in common])
 
     ax.axhline(0, color=GRID_GRAY, lw=0.6, zorder=0)
@@ -224,19 +196,15 @@ def panel_B(ax) -> None:
 
     cp = json.loads(CROSS_PIPE.read_text())
     sa_b_hc = cp["approach_b_from_B11"]["high_confidence_q_lt_005"]["sign_agreement_pct"]
-    rho_a = cp["approach_a_from_B12"]["signed_magnitude_spearman"]
     n_compared = len(x)
-    n_agree = int(((np.sign(x) == np.sign(y)) & (x != 0) & (y != 0)).sum())
-    pct = 100.0 * n_agree / max(1, n_compared)
+    pct = float(sa_b_hc)
     annot_box(ax,
-                f"q<0.05 Supp T2 ∩ relaxed panel · n = {n_compared:,}\n"
-                f"sign agreement {pct:.1f}%  "
-                f"(B11 high-conf {sa_b_hc:.1f}%)\n"
-                f"signed-mag $\\rho$ = {rho_a:.2f}",
+                f"published q<0.05 ∩ directional relaxed panel\n"
+                f"n = {n_compared:,} · sign agreement {pct:.1f}%",
                 x=0.04, y=0.96, fontsize=6.5)
 
     ax.set_xlabel("framework slope (this study)", fontsize=7)
-    ax.set_ylabel("Yakubovsky layer-ratio\n(Supp T2: Z1-2 − Z7-8)", fontsize=7)
+    ax.set_ylabel("published layer difference\n(Supp T2: Z1-2 − Z7-8)", fontsize=7)
     # Symlog Y: bulk of genes have |layer_ratio| < 5e-4, but four central
     # markers run up to ~8e-3 (CYP2E1). On a linear scale those four
     # outliers dominate the panel and compress everything else into a
@@ -257,7 +225,7 @@ def panel_baseline(ax) -> None:
     sb = json.loads(SIGN_BASE.read_text())
     df = pd.read_parquet(PER_GRAD)
     cohort = df[(df["scope"] == "cohort") & (df["donor"].isna())
-                 & (df["n_bins"] == 30) & (df["panel"] == "strict")
+                 & (df["n_bins"] == N_BINS_DEFAULT) & (df["panel"] == "strict")
                  & (df["axis"] == "s")][["gene", "slope"]].drop_duplicates("gene")
     import scanpy as sc
     print("[fig2] Loading visium for panel E...")
@@ -302,10 +270,17 @@ def panel_baseline(ax) -> None:
     sign_only = sign_disagree & ~is_marker
     ax.scatter(slopes[sign_only], rs[sign_only], facecolor="#EEEEEE",
                 edgecolor=CHARCOAL, s=30, linewidths=0.8, zorder=3)
-    for i in np.where(sign_only)[0]:
-        ax.annotate(common[i], xy=(slopes[i], rs[i]), xytext=(5, 5),
-                     textcoords="offset points", fontsize=5.5,
-                     fontstyle="italic", color=CHARCOAL)
+    disagreeing_genes = [common[i] for i in np.where(sign_only)[0]]
+    if disagreeing_genes:
+        # All three points are effectively coincident at the origin. Listing
+        # them in a dedicated box is legible at journal width, unlike three
+        # overlapping point labels.
+        ax.text(0.61, 0.18,
+                "sign disagreements near origin:\n" + ", ".join(disagreeing_genes),
+                transform=ax.transAxes, fontsize=5.7, ha="left", va="center",
+                color=CHARCOAL, fontstyle="italic",
+                bbox=dict(facecolor="white", edgecolor="#CCCCCC",
+                          linewidth=0.5, boxstyle="round,pad=0.25"))
     # Markers — staggered fixed-pixel offsets to prevent collisions
     central_offsets = [(20, 22), (28, 8), (22, -8), (28, -22)]
     portal_offsets = [(-22, -18), (-30, -2), (-22, 14), (-30, 0), (-30, 14)]
@@ -342,7 +317,7 @@ def panel_baseline(ax) -> None:
     rho_mag = sb["magnitude_spearman_abs_r_vs_abs_slope"]
     annot_box(ax,
                 f"strict-66 panel\n63/66 ({pct:.1f}%) sign agree\n"
-                f"signed-mag $\\rho$ = {rho_mag:.2f}\n"
+                f"absolute-mag $\\rho$ = {rho_mag:.2f}\n"
                 f"○ = sign-disagreer",
                 x=0.04, y=0.96, fontsize=6.5)
     ax.set_xlim(*xlim); ax.set_ylim(*ylim)

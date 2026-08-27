@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import itertools
 from typing import Iterable  # noqa: F401
 
 import anndata as ad
 import numpy as np
 from scipy.sparse import issparse
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import LeaveOneOut
 
 from sgd.config import LHD_SAMPLES
 from sgd.confounds import donor_aware_residualize
@@ -40,20 +40,24 @@ def select_ridge_lambda_loocv(G: np.ndarray, dgds: np.ndarray,
     Returns (best_lambda, mean_mse_per_lambda).
     """
     n_bins = G.shape[0]
-    n_genes = dgds.shape[1]
     lambdas = list(lambdas)
     mse = np.zeros(len(lambdas))
-    loo = LeaveOneOut()
+
+    # Exact PRESS/hat-matrix LOOCV for multi-response ridge with an unpenalised
+    # intercept. This is algebraically equivalent to fitting sklearn.Ridge on
+    # every leave-one-bin-out fold, but avoids O(n_bins * n_genes * n_lambda)
+    # separate estimator fits (prohibitive at the 500-bin HD setting).
+    X_centered = G - G.mean(axis=0, keepdims=True)
+    Y_centered = dgds - dgds.mean(axis=0, keepdims=True)
+    U, singular_values, _ = np.linalg.svd(X_centered, full_matrices=False)
+    squared = singular_values ** 2
     for li, lam in enumerate(lambdas):
-        per_gene_mse = np.zeros(n_genes)
-        for gi in range(n_genes):
-            preds = np.zeros(n_bins)
-            for train_idx, test_idx in loo.split(G):
-                m = Ridge(alpha=lam, fit_intercept=True)
-                m.fit(G[train_idx], dgds[train_idx, gi])
-                preds[test_idx[0]] = m.predict(G[test_idx])[0]
-            per_gene_mse[gi] = np.mean((preds - dgds[:, gi]) ** 2)
-        mse[li] = per_gene_mse.mean()
+        shrinkage = squared / (squared + lam)
+        fitted_centered = U @ (shrinkage[:, None] * (U.T @ Y_centered))
+        residuals = Y_centered - fitted_centered
+        hat_diagonal = 1.0 / n_bins + (U ** 2) @ shrinkage
+        loo_residuals = residuals / np.maximum(1.0 - hat_diagonal[:, None], 1e-12)
+        mse[li] = float(np.mean(loo_residuals ** 2))
     best = lambdas[int(np.argmin(mse))]
     return float(best), mse
 
@@ -141,24 +145,46 @@ def block_bootstrap_W(G: np.ndarray, dgds: np.ndarray, lam: float,
 
 def donor_split_W_distance(adata: ad.AnnData, donor_col: str, s_col: str,
                             panel_mask: np.ndarray, n_bins: int,
-                            n_splits: int = 1000, rng_seed: int = 0,
+                            n_splits: int | None = None, rng_seed: int = 0,
                             ridge_lambda: float | None = None
                             ) -> dict:
     """
-    Random 4-vs-4 LHD donor splits. For each split, fit W on one half and
-    on the other; report Frobenius distance ‖W₁−W₂‖/‖W₁‖.
+    Exhaustive unique 4-vs-4 LHD donor splits. For each unordered partition,
+    fit W on both halves and report the symmetric Frobenius distance
+    2‖W₁−W₂‖/(‖W₁‖+‖W₂‖).
+
+    ``n_splits`` and ``rng_seed`` remain in the signature for compatibility;
+    no random partitions are sampled. Eight donors have exactly 35 unique
+    unordered 4-vs-4 partitions, so treating 1000 repeated draws as independent
+    replications would be misleading.
     """
     donors = sorted([d for d in adata.obs[donor_col].astype(str).unique()
                      if d in LHD_SAMPLES])
     if len(donors) < 8:
         return {"status": "fewer_than_8_donors", "n_donors": len(donors)}
-    rng = np.random.RandomState(rng_seed)
     distances = []
     chosen_lambda: float | None = ridge_lambda
-    for _ in range(n_splits):
-        perm = rng.permutation(donors)
-        half_a = list(perm[:len(perm) // 2])
-        half_b = list(perm[len(perm) // 2:])
+    if chosen_lambda is None:
+        full_panel = adata[:, panel_mask].copy()
+        G_full, bc_full, _, _ = quantile_bin_per_donor_pool(
+            full_panel, s_col=s_col, n_bins=n_bins, sigma=SIGMA_BINS
+        )
+        if np.isnan(bc_full).all() or len(bc_full) < 3:
+            return {"status": "full_cohort_binning_failed"}
+        grad_full = per_gene_gradient(G_full, bc_full)
+        chosen_lambda, _ = select_ridge_lambda_loocv(
+            G_full, grad_full["dgds_per_bin"]
+        )
+
+    # Keep one member of each complementary pair by requiring the first donor
+    # to be in half A: C(7, 3) = 35 unique partitions.
+    partitions = []
+    for remainder in itertools.combinations(donors[1:], len(donors) // 2 - 1):
+        half_a = [donors[0], *remainder]
+        half_b = [d for d in donors if d not in half_a]
+        partitions.append((half_a, half_b))
+
+    for half_a, half_b in partitions:
         Wa, Wb = None, None
         for half, slot in ((half_a, "a"), (half_b, "b")):
             sub = adata[adata.obs[donor_col].astype(str).isin(half)].copy()
@@ -168,8 +194,6 @@ def donor_split_W_distance(adata: ad.AnnData, donor_col: str, s_col: str,
             if np.isnan(bc).all() or len(bc) < 3:
                 continue
             grad = per_gene_gradient(Gs, bc)
-            if chosen_lambda is None:
-                chosen_lambda, _ = select_ridge_lambda_loocv(Gs, grad["dgds_per_bin"])
             assert chosen_lambda is not None
             W, _ = fit_W_ridge(Gs, grad["dgds_per_bin"], chosen_lambda)
             if slot == "a":
@@ -178,11 +202,15 @@ def donor_split_W_distance(adata: ad.AnnData, donor_col: str, s_col: str,
                 Wb = W
         if Wa is None or Wb is None:
             continue
-        dist = float(np.linalg.norm(Wa - Wb) / max(1e-12, np.linalg.norm(Wa)))
+        denominator = np.linalg.norm(Wa) + np.linalg.norm(Wb)
+        dist = float(2.0 * np.linalg.norm(Wa - Wb) / max(1e-12, denominator))
         distances.append(dist)
     distances = np.array(distances)
     return {
         "n_splits_evaluated": int(len(distances)),
+        "n_unique_partitions": int(len(partitions)),
+        "partition_method": "all 35 unique unordered 4-vs-4 partitions",
+        "distance_definition": "2*||Wa-Wb||_F/(||Wa||_F+||Wb||_F)",
         "mean_frobenius_ratio": float(distances.mean()) if len(distances) else float("nan"),
         "median_frobenius_ratio": float(np.median(distances)) if len(distances) else float("nan"),
         "p25": float(np.percentile(distances, 25)) if len(distances) else float("nan"),
@@ -196,10 +224,16 @@ def donor_split_W_distance(adata: ad.AnnData, donor_col: str, s_col: str,
 # ---------------------------------------------------------------------------
 
 def hd_path_a_donor_subset(adata_hd: ad.AnnData, sample: str,
-                           sample_col: str = "sample_id") -> ad.AnnData:
+                           sample_col: str = "sample_id",
+                           genes: Iterable[str] | None = None) -> ad.AnnData:
     """Return path-A pre-segmented subset for one HD donor (M2 or M6)."""
-    sub = adata_hd[(adata_hd.obs.get("platform_path", "").astype(str) == "hd_segmented")
-                    & (adata_hd.obs[sample_col].astype(str) == sample)].copy()
+    mask = ((adata_hd.obs.get("platform_path", "").astype(str) == "hd_segmented")
+            & (adata_hd.obs[sample_col].astype(str) == sample))
+    if genes is None:
+        sub = adata_hd[mask].copy()
+    else:
+        selected = [g for g in genes if g in adata_hd.var_names]
+        sub = adata_hd[mask, selected].copy()
     return sub
 
 

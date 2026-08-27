@@ -1,7 +1,8 @@
 """Figure 3 — Phenomenological coefficient stability (revised v2).
 
-Five panels (F removed): A rank saturation, B bootstrap stability vs null,
-C donor-split Frob ratio, D platform-split scatter, E nullspace dimension.
+Five panels: A rank saturation, B descriptive bootstrap stability,
+C exhaustive donor-partition disagreement, D observed platform-split W entries,
+E numerical nullspace dimension.
 Layout: 3 panels top (A, B, C) + 2 panels bottom (D, E).
 """
 
@@ -49,8 +50,6 @@ def load_grids():
             "rank": v["effective_rank"],
             "nullspace": v.get("nullspace_dimensionality", v["n_genes"] - v["effective_rank"]),
             "frac_stable": v["frac_W_stable_z_gt_196"],
-            "perm_p95": v["permutation_frac_stable_p95"],
-            "perm_mean": v["permutation_frac_stable_mean"],
         })
     hd_rows = []
     for k, v in hd.items():
@@ -62,8 +61,6 @@ def load_grids():
             "rank": v["effective_rank"],
             "nullspace": v.get("nullspace_dimensionality", v["n_genes"] - v["effective_rank"]),
             "frac_stable": v["frac_W_stable_z_gt_196"],
-            "perm_p95": v["permutation_frac_stable_p95"],
-            "perm_mean": v["permutation_frac_stable_mean"],
         })
     return d, pd.DataFrame(sv_rows), pd.DataFrame(hd_rows)
 
@@ -97,16 +94,13 @@ def panel_A(ax, sv_df, hd_df) -> None:
 
 
 def panel_B(ax, sv_df, hd_df) -> None:
-    """Bootstrap stability vs permutation null — legend below plot."""
-    df = pd.concat([sv_df, hd_df]).sort_values("N")
-    ax.plot(df["N"], df["frac_stable"], "o-", color=CHARCOAL, lw=1.5,
-             markersize=5, label="real-label data")
-    ax.plot(df["N"], df["perm_p95"], "s--", color=LIGHT_GRAY, lw=1.2,
-             markersize=4, label="gene-permuted null (p95)")
-    ax.fill_between(df["N"].to_numpy(),
-                     df["perm_mean"].to_numpy(),
-                     df["perm_p95"].to_numpy(),
-                     color=LIGHT_GRAY, alpha=0.20, linewidth=0)
+    """Descriptive fraction of entries large relative to bootstrap spread."""
+    sv = sv_df.sort_values("N")
+    hd = hd_df.sort_values("N")
+    ax.plot(sv["N"], sv["frac_stable"], "o-", color=TEAL_LHD_DARK, lw=1.5,
+             markersize=5, label="Visium")
+    ax.plot(hd["N"], hd["frac_stable"], "s-", color=TEAL_LHD, lw=1.5,
+             markersize=5, label="Visium HD")
     ax.set_xscale("log")
     ax.set_xlabel("bin count N", fontsize=7)
     ax.set_ylabel("fraction of W entries\nwith |z| > 1.96", fontsize=7)
@@ -114,13 +108,10 @@ def panel_B(ax, sv_df, hd_df) -> None:
     ax.set_xticklabels(["30", "50", "100", "200", "500"], fontsize=6.5)
     ax.tick_params(axis="x", which="minor", bottom=False)
     ax.set_xlim(25, 700)
-    ax.set_ylim(0, 0.20)
-    # Legend outside plot area (below)
-    ax.legend(fontsize=6.5, loc="upper center", frameon=False, ncol=2,
-               bbox_to_anchor=(0.5, -0.30))
-    # Take-home in a subtle box at upper-right (away from data lines)
+    ax.set_ylim(0, max(0.20, 1.25 * pd.concat([sv, hd])["frac_stable"].max()))
+    ax.legend(fontsize=6.5, loc="upper left", frameon=False)
     ax.text(0.98, 0.96,
-             "real ≈ permuted null\n— no identifiability signal",
+             r"descriptive threshold:" "\n" r"$|\bar W|/SD_{boot}>1.96$",
              transform=ax.transAxes, fontsize=6.5, va="top", ha="right",
              color=CHARCOAL, fontstyle="italic",
              bbox=dict(facecolor="white", edgecolor="#CCCCCC",
@@ -138,42 +129,65 @@ def panel_C(ax, d_full) -> None:
     ax.fill_between(Ns, p25, p75, color=TEAL_LHD, alpha=0.25, linewidth=0,
                      label="IQR")
     ax.plot(Ns, means, "o-", color=TEAL_LHD_DARK, lw=1.6, markersize=5,
-             label=f"mean (n={d_full['n_donor_splits']} splits)")
+             label=f"mean (all {d_full['n_donor_splits']} unique splits)")
     ax.axhline(1.0, color=CHARCOAL, lw=0.6, linestyle=":")
-    ax.text(155, 1.005, "split ‖·‖ = matrix ‖·‖",
+    ax.text(155, 1.025, "difference = mean matrix norm",
              fontsize=5.5, color=LIGHT_GRAY, ha="right", va="bottom",
              style="italic")
     ax.set_xticks([30, 50, 100, 150])
     ax.set_xticklabels(["30", "50", "100", "150"], fontsize=6.5)
     ax.set_xlim(20, 165)
     ax.set_xlabel("bin count N", fontsize=7)
-    ax.set_ylabel(r"$\Vert W_a - W_b \Vert / \Vert W_a \Vert$", fontsize=7)
+    ax.set_ylabel(r"$2\Vert W_a-W_b\Vert/(\Vert W_a\Vert+\Vert W_b\Vert)$", fontsize=7)
     # Tighter y range — emphasises the flat ≈1.4 result
     ax.set_ylim(0.95, 1.55)
     ax.legend(fontsize=6.5, loc="upper right", frameon=False)
 
 
 def panel_D(ax, d_full) -> None:
-    """Platform-split entry correlation (M2)."""
-    info = d_full["platform_split_M2_M6"]["M2"]
-    rho = info["spearman_rho_W_entries"]
-    rng = np.random.default_rng(0)
-    x = rng.normal(0, 0.5, 3025)
-    noise_y = rng.normal(0, 0.5, 3025)
-    y = rho * x / x.std() * noise_y.std() + np.sqrt(1 - rho ** 2) * noise_y
-    ax.scatter(x, y, s=2.0, alpha=0.30, color=CHARCOAL, edgecolor="none")
+    """Observed platform-split entry correlations in both matched donors."""
+    platform = d_full["platform_split_M2_M6"]
+    plotted: list[tuple[str, float, int]] = []
+    all_values: list[np.ndarray] = []
+    colours = {"M2": CHARCOAL, "M6": TEAL_LHD}
+    for donor in ("M2", "M6"):
+        info = platform.get(donor, {})
+        if info.get("status") != "ok":
+            continue
+        x = np.asarray(info["W_visium_entries"], dtype=float)
+        y = np.asarray(info["W_hd_entries"], dtype=float)
+        valid = np.isfinite(x) & np.isfinite(y)
+        x, y = x[valid], y[valid]
+        # Standardise within donor and platform for readable common limits;
+        # rank correlation is invariant to this transformation. Every point is
+        # an observed fitted entry, not a cloud simulated to match a target rho.
+        x = (x - x.mean()) / max(x.std(), 1e-12)
+        y = (y - y.mean()) / max(y.std(), 1e-12)
+        ax.scatter(x, y, s=2.0, alpha=0.22, color=colours[donor],
+                   edgecolor="none", label=donor)
+        all_values.extend((x, y))
+        plotted.append((donor, float(info["spearman_rho_W_entries"]), len(x)))
     ax.axhline(0, color=GRID_GRAY, lw=0.6)
     ax.axvline(0, color=GRID_GRAY, lw=0.6)
-    lim = 2.5
+    lim = max(2.5, float(np.percentile(np.abs(np.concatenate(all_values)), 99)))
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
-    ax.set_xlabel("W entry — Visium", fontsize=7)
-    ax.set_ylabel("W entry — Visium HD", fontsize=7)
-    ax.set_title("M2 platform-split (n = 3,025 entries)", fontsize=7, pad=4)
-    ax.text(0.04, 0.96, f"Spearman $\\rho$ = {rho:.3f}\n(uncorrelated)",
-             transform=ax.transAxes, fontsize=6.5, va="top", ha="left",
-             color=CHARCOAL,
-             bbox=dict(facecolor="white", edgecolor="#CCCCCC", linewidth=0.5,
-                        boxstyle="round,pad=0.25"))
+    ax.set_xlabel("standardised W entry — Visium", fontsize=7)
+    ax.set_ylabel("standardised W entry — Visium HD", fontsize=7)
+    n_total = sum(n for _, _, n in plotted)
+    annotation = "\n".join(
+        f"{donor}: Spearman $\\rho$ = {rho:.3f}"
+        for donor, rho, _ in plotted
+    )
+    # Keep the numerical summary outside the data cloud.  Earlier versions
+    # placed an opaque annotation box inside the axes, obscuring observations.
+    ax.set_title(
+        f"matched-donor platform splits (n = {n_total:,} observed entries)\n"
+        + annotation.replace("\n", "   "),
+        fontsize=7, pad=4, linespacing=1.25,
+    )
+    ax.legend(fontsize=6.2, loc="upper center", frameon=False, ncol=2,
+              bbox_to_anchor=(0.5, -0.24), markerscale=3,
+              handletextpad=0.3, columnspacing=1.2)
 
 
 def panel_E(ax, sv_df, hd_df) -> None:
@@ -195,7 +209,9 @@ def panel_E(ax, sv_df, hd_df) -> None:
     ax.set_xticks(x_pos)
     ax.set_xticklabels([str(n) for n in Ns], fontsize=6.5)
     ax.set_ylabel("nullspace dimension\n(p − effective rank)", fontsize=7)
-    ax.set_xlabel("bin count N", fontsize=7, labelpad=18)
+    # Platform brackets already label the grouped x axis; a second xlabel
+    # collides with those labels in the journal-width layout.
+    ax.set_xlabel("")
     ax.tick_params(axis="x", length=0)
     ax.set_ylim(0, max(nulls) + 8)
 
@@ -253,7 +269,7 @@ def main() -> None:
     panel_label(ax_A, "A", x=-0.20, y=1.05)
     panel_label(ax_B, "B", x=-0.20, y=1.05)
     panel_label(ax_C, "C", x=-0.20, y=1.05)
-    panel_label(ax_D, "D", x=-0.13, y=1.05)
+    panel_label(ax_D, "D", x=-0.09, y=1.13)
     panel_label(ax_E, "E", x=-0.13, y=1.05)
 
     out = FIGURES / "fig3_phenom_stability.png"

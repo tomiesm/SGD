@@ -5,11 +5,8 @@
 # curation repo (environment frozen 2026-05-17), which is the environment
 # every reported number was computed in.
 #
-# NOTE — three of these pins differ from the versions named in
-# SGD_paper.tex (§software-and-reproducibility). The manuscript states
-# numpy 1.26, scipy 1.17, anndata 0.11; the proven environment is
-# numpy 2.0.2, scipy 1.16.3, anndata 0.12.10. The pins below are the
-# environment the artifacts were actually produced in.
+# These exact versions are also reported in the revised manuscript. They are
+# the environment in which the revision artifacts were regenerated.
 
 # Core scientific stack
 numpy==2.0.2
@@ -23,10 +20,15 @@ joblib==1.5.0
 # Spatial transcriptomics and single-cell
 anndata==0.12.10
 scanpy==1.12
+scikit-misc==0.5.1       # required by scanpy HVG flavor="seurat_v3" in step 02
+dask[array]==2024.8.2    # lazy HD h5ad column loading in step 09
+xarray==2026.1.0         # AnnData read_lazy table backend
 
 # File formats
 pyarrow==17.0.0          # parquet read/write
 openpyxl==3.1.5          # Yakubovsky supplementary-table xlsx reads
+Pillow==11.1.0           # raster image input used by figure 1
+patsy==1.0.1             # explicit design-matrix dependency for steatosis inference
 
 # Pathway enrichment (step 14)
 gseapy==1.1.9

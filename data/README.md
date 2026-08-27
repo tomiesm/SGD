@@ -40,8 +40,8 @@ paper and place the `.xlsx` files under
 
 `scripts/01_inventory.py` also reads the `Loupe_categories/` lipid CSVs
 from the Yakubovsky GitHub repository (`OranYak/Human-liver`). Clone or
-download that repo and point the inventory step at its `Loupe_categories/`
-directory.
+download that directory into `data/Loupe_categories/`, or set
+`SGD_LOUPE_DIR=/absolute/path/to/Loupe_categories`.
 
 ## 4. Moor 2018 intestinal crypt-villus (second-tissue validation)
 
@@ -77,4 +77,5 @@ data/
 ```
 
 All of these paths are resolved by `src/sgd/config.py` relative to the
-repository root - there are no hard-coded absolute paths.
+repository root. `SGD_DATA_DIR`, `SGD_RESULTS_DIR`, and `SGD_FIGURES_DIR` can
+override the three top-level directories without editing code.

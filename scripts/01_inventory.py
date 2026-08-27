@@ -38,7 +38,7 @@ import zipfile
 import numpy as np
 import pandas as pd
 
-from sgd.config import (DATA, RESULTS, LHD_SAMPLES, P_SAMPLES,
+from sgd.config import (DATA, RESULTS, LHD_SAMPLES, P_SAMPLES, SNRNA_PATH,
                         STEATOTIC_SAMPLES)
 from sgd.io import file_size_mb
 
@@ -255,8 +255,7 @@ def run_inventory() -> None:
 
     # --- 5. snRNA-seq inventory -----------------------------------------
     snrna_inventory = {
-        "integrated_h5ad": str(SNRNA_DIR / "snRNAseq.h5ad")
-        if (SNRNA_DIR / "snRNAseq.h5ad").exists() else None,
+        "integrated_h5ad": str(SNRNA_PATH) if SNRNA_PATH.exists() else None,
         "raw_dirs": [str(SNRNA_DIR / s) for s in ("M5", "M6", "M7", "M8")
                      if (SNRNA_DIR / s).exists()],
     }

@@ -7,8 +7,8 @@ A 2-panel figure:
             markers, coloured by literature-expected direction (blue =
             should decrease crypt->tip; red = should increase), each bar
             marked correct/incorrect, annotated "X/15 correct".
-  Panel B — W stability: empirical block-bootstrap stable-entry fraction
-            vs the gene-permutation null (mean and p95), at N=7 zones.
+  Panel B — cumulative variance of the seven-zone expression trajectory,
+            showing its low effective dimension in the 20-gene state space.
 
 Reads moor_crypt_results.json (produced by 01_marker_recovery.py and
 02_wmatrix_stability.py). Uses sgd.plotstyle for visual consistency with
@@ -111,47 +111,27 @@ def panel_a(ax, a1: dict):
 
 
 def panel_b(ax, a2: dict):
-    """W stability: empirical block-bootstrap vs gene-permutation null."""
-    emp = a2["block_bootstrap"]["empirical_stable_fraction"]
-    perm = a2["permutation_null"]
-    perm_vals = np.asarray(perm["stable_fraction_per_permutation"], dtype=float)
-    perm_mean = perm["mean_stable_fraction"]
-    perm_p95 = perm["p95_stable_fraction"]
-    n_perm = perm["n_permutations"]
-    n_zones = a2["n_zones"]
-
-    # Permutation-null distribution as a strip of jittered points.
-    rng = np.random.RandomState(0)
-    jitter = rng.uniform(-0.16, 0.16, size=perm_vals.size)
-    ax.scatter(np.full(perm_vals.size, 0.0) + jitter, perm_vals,
-               s=10, color=plotstyle.LIGHT_GRAY, alpha=0.55,
-               edgecolor="none", zorder=2,
-               label=f"gene-permutation null ({n_perm} perms)")
-
-    # Null mean and p95 lines.
-    ax.hlines(perm_mean, -0.32, 0.32, color=plotstyle.CHARCOAL,
-              linewidth=1.4, zorder=3,
-              label=f"null mean = {perm_mean:.3f}")
-    ax.hlines(perm_p95, -0.32, 0.32, color=plotstyle.CHARCOAL,
-              linewidth=1.2, linestyle="--", zorder=3,
-              label=f"null p95 = {perm_p95:.3f}")
-
-    # Empirical stable fraction.
-    ax.scatter([1.0], [emp], s=90, color=plotstyle.TEAL_LHD,
-               edgecolor=plotstyle.TEAL_LHD_DARK, linewidth=1.0, zorder=4,
-               label=f"empirical = {emp:.3f}")
-    ax.annotate(f"{emp:.3f}", xy=(1.0, emp), xytext=(1.16, emp),
-                fontsize=7, va="center", ha="left",
-                color=plotstyle.TEAL_LHD_DARK)
-
-    ax.set_xlim(-0.6, 1.8)
-    ax.set_xticks([0.0, 1.0])
-    ax.set_xticklabels(["permutation\nnull", "empirical"])
-    ax.set_ylabel(f"W stable-entry fraction (|z| > 1.96)")
-    ax.set_title(f"W bootstrap stability (N = {n_zones} zones)")
-    ax.margins(y=0.20)
-    ax.legend(loc="upper right", frameon=False, fontsize=5.8,
-              handlelength=1.4)
+    """Cumulative PCA variance of the observed seven-zone trajectory."""
+    pca = a2["pca"]
+    cumulative = np.asarray(pca["cumulative_explained_variance"], dtype=float)
+    components = np.arange(1, len(cumulative) + 1)
+    ax.plot(components, cumulative, "o-", color=plotstyle.TEAL_LHD_DARK,
+            linewidth=1.5, markersize=4)
+    ax.axhline(0.95, color=plotstyle.CHARCOAL, linestyle="--", linewidth=0.8)
+    n95 = pca["N_eff_95pct"]
+    ax.axvline(n95, color=plotstyle.LIGHT_GRAY, linestyle=":", linewidth=0.8)
+    ax.scatter([n95], [cumulative[n95 - 1]], s=55, color=plotstyle.TEAL_LHD,
+               edgecolor=plotstyle.TEAL_LHD_DARK, zorder=3)
+    ax.text(0.96, 0.12,
+            f"{n95} components capture\n{100*cumulative[n95-1]:.1f}% of variance",
+            transform=ax.transAxes, ha="right", va="bottom", fontsize=7,
+            bbox=dict(facecolor="white", edgecolor="#CCCCCC",
+                      linewidth=0.5, boxstyle="round,pad=0.25"))
+    ax.set_xlim(0.7, len(cumulative) + 0.3)
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("principal components")
+    ax.set_ylabel("cumulative explained variance")
+    ax.set_title("Low-dimensional crypt-villus trajectory")
     plotstyle.panel_label(ax, "B")
 
 

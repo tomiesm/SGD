@@ -232,7 +232,7 @@ def panel_C(ax) -> None:
         ("score-\naxis", 0.290),
         ("quantile\nbin", 0.495),
         ("per-gene\nslope", 0.700),
-        ("compare /\ndifferential", 0.905),
+        ("compare\ngradients", 0.905),
     ]
     arrows = ["axis", "binning", "slope", "compare"]
     box_w, box_h = 0.155, 0.55

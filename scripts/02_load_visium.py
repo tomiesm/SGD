@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import json
+import os
 import warnings
 
 import anndata as ad
@@ -51,6 +52,7 @@ MIN_GENES_PER_SPOT = 200
 MIN_UMI_PER_SPOT = 500
 MIN_SPOTS_PER_GENE = 3
 N_TOP_SVG = 2000
+ALLOW_PARTIAL = os.environ.get("SGD_ALLOW_PARTIAL", "0") == "1"
 
 
 def _detect_mt_pattern(var_names: pd.Index) -> str | None:
@@ -121,12 +123,14 @@ def main() -> None:
     by_sample_meta = inv["metadata"].get("by_sample", {}) if inv.get("metadata") else {}
     sample_paths = inv["visium_human"]["samples"]
 
-    # Build the work list: only samples with complete file paths.
+    # Build the work list. Exact manuscript reproduction requires all 16
+    # samples; partial runs must be requested explicitly for development.
     plan = []
+    incomplete = []
     for sid in LHD_SAMPLES + P_SAMPLES:
         paths = sample_paths.get(sid, {})
         if not paths.get("complete"):
-            print(f"[A2] SKIP {sid}: incomplete inventory {paths}")
+            incomplete.append(sid)
             continue
         cond = "LHD" if sid in LHD_SAMPLES else "P"
         steat = sid in STEATOTIC_SAMPLES
@@ -144,8 +148,19 @@ def main() -> None:
                         pass
         plan.append((sid, paths, cond, steat, lipid_pct))
 
-    print(f"[A2] Loading {len(plan)} samples in parallel (n_jobs={N_JOBS})...")
-    adatas = Parallel(n_jobs=N_JOBS, backend="loky", verbose=5)(
+    if incomplete and not ALLOW_PARTIAL:
+        raise RuntimeError(
+            "[A2] exact reproduction requires all 16 Visium samples; "
+            f"incomplete inventory for {incomplete}. Re-run step 01 after "
+            "installing the inputs, or set SGD_ALLOW_PARTIAL=1 for an "
+            "explicit non-reproduction development run."
+        )
+    if incomplete:
+        print(f"[A2] PARTIAL RUN requested; skipping incomplete samples: {incomplete}")
+
+    n_jobs = min(N_JOBS, len(plan), os.cpu_count() or 1)
+    print(f"[A2] Loading {len(plan)} samples in parallel (n_jobs={n_jobs})...")
+    adatas = Parallel(n_jobs=n_jobs, backend="loky", verbose=5)(
         delayed(load_one)(sid, paths, cond, steat, lipid)
         for (sid, paths, cond, steat, lipid) in plan
     )

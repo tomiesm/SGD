@@ -7,7 +7,8 @@ that turns the loaded Visium AnnData into an axis-bearing object.
 
 Reads:
   - ``results/visium_human.h5ad``
-  - Yakubovsky GitHub lipid CSVs under ``data/yakubovsky_loupe/``
+  - Yakubovsky GitHub lipid CSVs under a documented ``Loupe_categories/``
+    layout, or the directory selected by ``SGD_LOUPE_DIR``
   - ``results/yakubovsky_reference.json``
 
 Writes:
@@ -51,7 +52,8 @@ from joblib import Parallel, delayed
 from scipy.stats import pearsonr
 from sklearn.neighbors import NearestNeighbors
 
-from sgd.config import (DATA, RESULTS, LHD_SAMPLES, STEATOTIC_SAMPLES)
+from sgd.config import (DATA, RESULTS, LHD_SAMPLES, LOUPE_DIR_OVERRIDE,
+                        STEATOTIC_SAMPLES)
 from sgd.axis import (build_landmark_axis, build_score_axis,
                       compute_preliminary_axis, derive_fibrotic_mask)
 from sgd.io import file_size_mb
@@ -71,8 +73,24 @@ AXIS_VARIANTS_OUT = RESULTS / "axis_variants_summary.json"
 INVENTORY = RESULTS / "data_inventory.json"
 YAKUB = RESULTS / "yakubovsky_reference.json"
 
-# Legacy build_lipid_supplement read the Loupe CSVs from data/yakubovsky_loupe/.
-LOUPE = DATA / "yakubovsky_loupe"
+def resolve_loupe_dir() -> Path:
+    """Resolve the published Loupe annotations without silently inventing zeros."""
+    candidates = []
+    if LOUPE_DIR_OVERRIDE:
+        candidates.append(Path(LOUPE_DIR_OVERRIDE).expanduser().resolve())
+    candidates.extend([
+        DATA / "Loupe_categories",
+        DATA / "yakubovsky_repo" / "Loupe_categories",
+        DATA / "yakubovsky_loupe",  # legacy local layout
+    ])
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    formatted = "\n  - ".join(str(p) for p in candidates)
+    raise FileNotFoundError(
+        "Yakubovsky Loupe annotations were not found. Expected one of:\n  - "
+        f"{formatted}\nSet SGD_LOUPE_DIR to an alternate Loupe_categories directory."
+    )
 
 # A7 knobs.
 N_JOBS = 8  # one per LHD sample
@@ -101,7 +119,8 @@ def build_lipid_supplement() -> None:
     The CSVs are categorical (per-spot in-lipid-zone indicator), not a
     continuous lipid percentage. We encode them as binary {0.0, 1.0} per
     spot and skip spots in lipid_discard.csv (NaN)."""
-    print(f"Loading {VISIUM_H5AD} (obs only)...")
+    loupe = resolve_loupe_dir()
+    print(f"Loading {VISIUM_H5AD} (obs only); Loupe annotations: {loupe}")
     adata = sc.read_h5ad(VISIUM_H5AD, backed="r")
     obs = adata.obs[["sample_id", "barcode"]].copy()
     adata.file.close()
@@ -110,9 +129,16 @@ def build_lipid_supplement() -> None:
     summary: dict[str, dict] = {}
 
     for sample, lipid_csv, discard_csv in [
-        ("M1", LOUPE / "M1_lipid_zones.csv", None),
-        ("P6", LOUPE / "P6_lipid_zones.csv", LOUPE / "P6_lipid_discard.csv"),
+        ("M1", loupe / "M1_lipid_zones.csv", None),
+        ("P6", loupe / "P6_lipid_zones.csv", loupe / "P6_lipid_discard.csv"),
     ]:
+        if not lipid_csv.is_file():
+            raise FileNotFoundError(
+                f"Required lipid annotation is missing: {lipid_csv}. "
+                "Refusing to encode every spot as non-lipid."
+            )
+        if discard_csv is not None and not discard_csv.is_file():
+            raise FileNotFoundError(f"Required lipid discard annotation is missing: {discard_csv}")
         sample_barcodes = obs.loc[obs["sample_id"].astype(str) == sample, "barcode"].astype(str).tolist()
         zones = read_barcodes(lipid_csv)
         discards = read_barcodes(discard_csv) if discard_csv else set()

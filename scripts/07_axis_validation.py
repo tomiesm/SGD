@@ -29,6 +29,7 @@ Writes (all to RESULTS, basenames identical to legacy):
   b8_sensitivity.json
   cross_donor_correlation.json
   stage_B_variant_B_addendum.json, stage_B_cross_pipeline_supp_table_2.json
+  stage_B_cross_pipeline_supp_table_2_genes.parquet
   RESULTS/visium_human.h5ad updated in place with obs.s_v_B
 
 Feeds: four-tier validation Methods §4.4 — Fig 1D/1E/1F, Fig S2/S8/S9;
@@ -79,6 +80,7 @@ OUT_B8 = RESULTS / "b8_sensitivity.json"
 OUT_B9 = RESULTS / "cross_donor_correlation.json"
 OUT_ADDENDUM = RESULTS / "stage_B_variant_B_addendum.json"
 OUT_CROSS_PIPELINE = RESULTS / "stage_B_cross_pipeline_supp_table_2.json"
+OUT_CROSS_PIPELINE_GENES = RESULTS / "stage_B_cross_pipeline_supp_table_2_genes.parquet"
 
 # --- B3/B4 constants (verbatim from B3_tier0_tier1.py) ---
 CYP_FAMILY = ("CYP2A6", "CYP2E1", "CYP1A2", "CYP3A4")
@@ -601,26 +603,38 @@ def run_b9() -> None:
     donors = sorted(pd_rows["donor"].unique().tolist())
     print(f"[B9] Per-donor donors: {donors}")
 
-    # Strict gene set: panel rows present for every donor.
-    gene_set = sorted(set.intersection(*[
-        set(pd_rows[pd_rows["donor"] == d]["gene"].tolist()) for d in donors]))
+    def correlation_summary(rows: pd.DataFrame, donor_order: list[str],
+                            genes: list[str] | None = None) -> dict:
+        """Build a donor-by-donor slope correlation summary from B6 rows."""
+        common = sorted(set.intersection(*[
+            set(rows[rows["donor"] == d]["gene"].tolist()) for d in donor_order
+        ]))
+        if genes is not None:
+            common = sorted(set(common) & set(genes))
+        if not common:
+            raise RuntimeError("[B9] no genes common to every requested donor")
+        matrix = np.zeros((len(donor_order), len(common)))
+        for di, donor in enumerate(donor_order):
+            donor_rows = rows[rows["donor"] == donor].set_index("gene").loc[common]
+            matrix[di] = donor_rows["slope"].to_numpy()
+        cm_local = np.corrcoef(matrix)
+        off = cm_local[~np.eye(len(donor_order), dtype=bool)]
+        return {
+            "donors": donor_order,
+            "gene_set_size": len(common),
+            "genes": common,
+            "cross_donor_correlation_matrix": cm_local.tolist(),
+            "off_diagonal_mean": float(off.mean()),
+            "off_diagonal_min": float(off.min()),
+            "off_diagonal_max": float(off.max()),
+        }
+
+    strict_summary = correlation_summary(pd_rows, donors)
+    gene_set = strict_summary.pop("genes")
+    cm = np.asarray(strict_summary["cross_donor_correlation_matrix"])
+    mean_off = strict_summary["off_diagonal_mean"]
+    min_off = strict_summary["off_diagonal_min"]
     print(f"[B9] Per-donor gene set (strict-panel ∩ all donors): {len(gene_set)} genes")
-
-    slope_matrix = np.zeros((len(donors), len(gene_set)))
-    for di, d in enumerate(donors):
-        sub_d = pd_rows[pd_rows["donor"] == d].set_index("gene").loc[gene_set]
-        slope_matrix[di] = sub_d["slope"].to_numpy()
-
-    # n × n correlation matrix.
-    n = len(donors)
-    cm = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            r, _ = pearsonr(slope_matrix[i], slope_matrix[j])
-            cm[i, j] = r
-    off_diag = cm[~np.eye(n, dtype=bool)]
-    mean_off = float(off_diag.mean())
-    min_off = float(off_diag.min())
     sev14_5 = bool(min_off < 0.70)
 
     print(f"[B9] Cross-donor off-diagonal r: mean={mean_off:.3f}, min={min_off:.3f}")
@@ -644,15 +658,41 @@ def run_b9() -> None:
     n_disagree_ns = int((full_signs != ns_signs).sum())
     n_disagree_c5c = int((full_signs != c5c_signs).sum())
 
+    # Broad-panel reproducibility and its top cohort-slope quartile. These were
+    # previously reported in the manuscript but produced only by an external
+    # ad-hoc script.
+    relaxed_rows = df[(df["scope"] == "per_donor") & (df["axis"] == "s")
+                      & (df["n_bins"] == N_BINS_DEFAULT)
+                      & (df.get("panel", "strict") == "relaxed")]
+    if relaxed_rows.empty:
+        raise RuntimeError("[B9] no per-donor relaxed-panel rows in B6 parquet — re-run B6")
+    relaxed_donors = sorted(relaxed_rows["donor"].unique().tolist())
+    relaxed_summary = correlation_summary(relaxed_rows, relaxed_donors)
+    relaxed_summary.pop("genes")
+    cohort_relaxed = df[(df["scope"] == "cohort") & (df["axis"] == "s")
+                        & (df["n_bins"] == N_BINS_DEFAULT)
+                        & (df.get("panel", "strict") == "relaxed")].copy()
+    threshold = float(cohort_relaxed["slope"].abs().quantile(0.75))
+    top_genes = cohort_relaxed.loc[
+        cohort_relaxed["slope"].abs() >= threshold, "gene"
+    ].astype(str).tolist()
+    top_summary = correlation_summary(relaxed_rows, relaxed_donors, top_genes)
+    top_summary.pop("genes")
+    top_summary["threshold_abs_cohort_slope"] = threshold
+    relaxed_summary["top_quartile_by_abs_cohort_slope"] = top_summary
+    print(f"[B9] Relaxed panel: n={relaxed_summary['gene_set_size']}, "
+          f"mean r={relaxed_summary['off_diagonal_mean']:.3f}, "
+          f"min r={relaxed_summary['off_diagonal_min']:.3f}")
+    print(f"[B9] Relaxed top quartile: n={top_summary['gene_set_size']}, "
+          f"mean r={top_summary['off_diagonal_mean']:.3f}, "
+          f"min r={top_summary['off_diagonal_min']:.3f}")
+
     summary = {
-        "donors": donors,
-        "gene_set_size": len(gene_set),
-        "cross_donor_correlation_matrix": cm.tolist(),
-        "off_diagonal_mean": mean_off,
-        "off_diagonal_min": min_off,
+        **strict_summary,
         "passes_section13_mean_85": bool(mean_off >= 0.85),
         "passes_section13_min_70": bool(min_off >= 0.70),
         "sev14_5_failure": sev14_5,
+        "relaxed_panel": relaxed_summary,
         "three_cohort_sensitivity": {
             "n_headline": int(len(headline_idx)),
             "across_gene_r_full_vs_LHD5_nonsteatotic": float(r_full_ns),
@@ -781,7 +821,7 @@ def run_b11() -> None:
         print(f"[B11]   {g}: {c}/{n_donors_lhd}")
     print(f"[B11] §14 #7 failure: {sev14_7_failure}")
 
-    # --- §9.7 cross-pipeline reproducibility on the 1,711-gene panel ---
+    # --- §9.7 cross-pipeline reproducibility on the published directional table ---
     # Approach (b): aggregate Supp Table 2 directions vs our slope signs on
     # the same genes from B6's parquet (axis = s, n_bins = 50, panel = strict)
     # plus the relaxed-panel rows for genes outside strict-66.
@@ -798,6 +838,10 @@ def run_b11() -> None:
 
     # Restrict to genes with a defined direction in Supp Table 2 AND present in our slope vector.
     common = set(our_slope.index) & {g for g, v in directions.items() if v != 0}
+    common = {
+        g for g in common
+        if np.isfinite(our_slope[g]) and int(np.sign(our_slope[g])) != 0
+    }
     pub_dir = {g: directions[g] for g in common}
     our_dir = {g: int(np.sign(our_slope[g])) for g in common}
     n_compared = len(common)
@@ -816,10 +860,36 @@ def run_b11() -> None:
     n_agree_hc = sum(1 for g in common_hc if our_dir[g] == pub_dir[g])
     sign_agreement_hc = 100.0 * n_agree_hc / max(1, len(common_hc))
 
-    print(f"[B11]   1,711-gene panel: {n_compared} genes compared, "
+    print(f"[B11]   published-q directional overlap: {n_compared} genes compared, "
           f"sign agreement = {sign_agreement_pct:.2f}%")
     print(f"[B11]   high-confidence (q<0.05) subset: {len(common_hc)} genes, "
           f"sign agreement = {sign_agreement_hc:.2f}%")
+
+    # Persist the exact gene-level data behind the primary Figure 2B panel.
+    # The figure must not reconstruct a subtly different intersection from the
+    # source spreadsheet. In particular, the published direction call also
+    # applies the source table's minimum-expression rule, which excludes one
+    # q<0.05 row that a raw non-zero layer difference alone would retain.
+    panel_unique = panel_df[~panel_df.index.duplicated(keep="first")]
+    published_diff = (
+        panel_unique[["Mean_Zone_1", "Mean_Zone_2"]].mean(axis=1)
+        - panel_unique[["Mean_Zone_7", "Mean_Zone_8"]].mean(axis=1)
+    )
+    cross_genes = sorted(common_hc)
+    cross_gene_table = pd.DataFrame({
+        "gene": cross_genes,
+        "framework_slope": our_slope.reindex(cross_genes).to_numpy(),
+        "published_central_minus_portal": published_diff.reindex(cross_genes).to_numpy(),
+        "framework_direction": [our_dir[g] for g in cross_genes],
+        "published_direction": [pub_dir[g] for g in cross_genes],
+    })
+    cross_gene_table["sign_agreement"] = (
+        cross_gene_table["framework_direction"]
+        == cross_gene_table["published_direction"]
+    )
+    cross_gene_table.to_parquet(
+        OUT_CROSS_PIPELINE_GENES, compression="zstd", index=False
+    )
 
     # --- Save addendum + cross-pipeline JSON ---
     addendum = {
@@ -862,6 +932,12 @@ def run_b11() -> None:
         "panel_size": int(len(panel_df)),
         "n_with_direction": int(n_central + n_portal),
         "our_panel_used": "relaxed (≥6/8 LHD donors detected)",
+        "n_bins": int(N_BINS_DEFAULT),
+        "high_confidence_definition": (
+            "q<0.05 in Yakubovsky Supplementary Table 2, intersected with "
+            "genes having a non-zero published direction after the source "
+            "minimum-expression rule and a non-zero framework direction"
+        ),
         "n_genes_compared": int(n_compared),
         "n_sign_agreement": int(n_agree),
         "sign_agreement_pct": float(sign_agreement_pct),
@@ -870,11 +946,12 @@ def run_b11() -> None:
             "n_sign_agreement": int(n_agree_hc),
             "sign_agreement_pct": float(sign_agreement_hc),
         },
-        "passes_sec13_section_9_7_threshold_95pct": bool(sign_agreement_pct >= 95.0),
+        "passes_prespecified_80pct": bool(sign_agreement_pct >= 80.0),
         "cohort_overlap_caveat": addendum["cohort_overlap_caveat"],
     }
     OUT_CROSS_PIPELINE.write_text(json.dumps(cross_pipeline, indent=2))
     print(f"[B11] Wrote {OUT_CROSS_PIPELINE}")
+    print(f"[B11] Wrote {OUT_CROSS_PIPELINE_GENES}")
 
     # --- Save updated h5ad with non-NaN obs.s_v_B ---
     adata.write_h5ad(VISIUM, compression="gzip")

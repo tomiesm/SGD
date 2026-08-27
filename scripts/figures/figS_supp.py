@@ -79,11 +79,14 @@ def figS1():
     ax_A.axhline(0.3, color=LIGHT_GRAY, lw=0.7, linestyle="--")
     ax_A.axhline(-0.3, color=LIGHT_GRAY, lw=0.7, linestyle="--")
     ax_A.axhline(0, color=CHARCOAL, lw=0.5)
-    # Explicit ±0.3 labels at the right edge of each line
-    ax_A.text(7.6, 0.30, "+0.3", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
-    ax_A.text(7.6, -0.30, "−0.3", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
+    # Keep threshold labels inside the panel so they cannot collide with the
+    # neighbouring panel's y-axis label when the figure is scaled in LaTeX.
+    ax_A.text(0.98, 0.315, "+0.3", fontsize=5.5, color=LIGHT_GRAY,
+                va="bottom", ha="right",
+                transform=ax_A.get_yaxis_transform())
+    ax_A.text(0.98, -0.315, "−0.3", fontsize=5.5, color=LIGHT_GRAY,
+                va="top", ha="right",
+                transform=ax_A.get_yaxis_transform())
     ax_A.set_ylabel("r(UMI, s)", fontsize=7)
     ax_A.set_ylim(-0.45, 0.45)
     ax_A.tick_params(axis="x", labelsize=6.5, rotation=0)
@@ -114,12 +117,13 @@ def figS1():
                        ha="center", va="bottom", fontsize=5.5,
                        color=LIGHT_GRAY, fontstyle="italic")
     ax_B.axhline(-0.5, color=LIGHT_GRAY, lw=0.7, linestyle="--")
-    ax_B.text(3.6, -0.5, "−0.5\ntrigger", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
+    ax_B.text(0.98, -0.515, "−0.5\ntrigger", fontsize=5.5,
+                color=LIGHT_GRAY, va="top", ha="right",
+                transform=ax_B.get_yaxis_transform())
     ax_B.axhline(0, color=CHARCOAL, lw=0.5)
     ax_B.set_ylim(-0.6, 0.05)
-    ax_B.set_ylabel("r(lipid_pct, UMI)", fontsize=7)
-    ax_B.set_title("C2: lipid vs UMI per steatotic donor\nM2, M3 lipid annotation unavailable",
+    ax_B.set_ylabel("r(binary lipid label, UMI)", fontsize=7)
+    ax_B.set_title("C2: Loupe lipid label vs UMI\nM2, M3 annotation unavailable",
                     fontsize=7, pad=4)
     ax_B.tick_params(axis="x", labelsize=6.5)
     panel_label(ax_B, "B", x=-0.18, y=1.10)
@@ -129,8 +133,9 @@ def figS1():
                 if s in per and per[s].get("C3") else 0 for s in samples]
     ax_C.bar(samples, c3_vals, color=cb_lhd, edgecolor=CHARCOAL, linewidth=0.5)
     ax_C.axhline(0.15, color=LIGHT_GRAY, lw=0.7, linestyle="--")
-    ax_C.text(7.6, 0.15, "0.15\ntrigger", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
+    ax_C.text(0.98, 0.154, "0.15\ntrigger", fontsize=5.5,
+                color=LIGHT_GRAY, va="bottom", ha="right",
+                transform=ax_C.get_yaxis_transform())
     ax_C.set_ylabel("max-quintile frac\nspots > 25% mt", fontsize=7)
     ax_C.set_title("C3: mt-fraction trigger\nno donor exceeds 0.15",
                     fontsize=7, pad=4)
@@ -145,10 +150,12 @@ def figS1():
     ax_D.axhline(0.30, color=LIGHT_GRAY, lw=0.7, linestyle="--")
     ax_D.axhline(-0.30, color=LIGHT_GRAY, lw=0.7, linestyle="--")
     ax_D.axhline(0, color=CHARCOAL, lw=0.5)
-    ax_D.text(7.6, 0.30, "+0.3", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
-    ax_D.text(7.6, -0.30, "−0.3", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
+    ax_D.text(0.98, 0.315, "+0.3", fontsize=5.5, color=LIGHT_GRAY,
+                va="bottom", ha="right",
+                transform=ax_D.get_yaxis_transform())
+    ax_D.text(0.98, -0.315, "−0.3", fontsize=5.5, color=LIGHT_GRAY,
+                va="top", ha="right",
+                transform=ax_D.get_yaxis_transform())
     max_abs = add.get("confound_4_cohort_max_abs_r", max(abs(v) for v in rs_c4
                                                           if not np.isnan(v)))
     ax_D.set_ylabel("r(s, hep_fraction)", fontsize=7)
@@ -168,8 +175,9 @@ def figS1():
             b.set_edgecolor(TEAL_LHD_DARK)
             b.set_linewidth(1.5)
     ax_E.axhline(0.30, color=LIGHT_GRAY, lw=0.7, linestyle="--")
-    ax_E.text(7.6, 0.30, "0.3\nflag", fontsize=5.5, color=LIGHT_GRAY,
-                va="center", ha="left")
+    ax_E.text(0.98, 0.315, "0.3\nflag", fontsize=5.5,
+                color=LIGHT_GRAY, va="bottom", ha="right",
+                transform=ax_E.get_yaxis_transform())
     ax_E.set_ylabel("r_dir", fontsize=7)
     ax_E.set_title("C5: slide-edge directional artifact\nflagged donors (dark border): M2, M4, M6, M8",
                     fontsize=7, pad=4)
@@ -180,7 +188,7 @@ def figS1():
     # ---- Panel F: 5×3 status grid ----
     ax_F.set_axis_off()
     rows = [
-        ("C1", "UMI vs s",     "covariate-adjusted",    "ok"),
+        ("C1", "UMI vs s",     "sensitivity checked",   "ok"),
         ("C2", "lipid vs UMI", "log-UMI covariate",     "ok"),
         ("C3", "mt-fraction",  "no trigger",            "ok"),
         ("C4", "composition",  "cell2location (D13)",   "ok"),
@@ -310,7 +318,7 @@ def figS2():
 
     # Panel D: pooled vs minimum per-donor recovery, side-by-side bars.
     ax_D = fig.add_subplot(gs[0, 9:12])
-    variants = ["CYP family", "urea cycle", "GLUL"]
+    variants = ["CYP\nfamily", "urea\ncycle", "GLUL"]
     keys = ["drop_CYP_family", "drop_urea_cycle", "drop_GLUL_alone"]
     pooled_frac = []
     min_donor_frac = []
@@ -371,7 +379,7 @@ def figS3():
     ax_B = fig.add_subplot(gs[0, 1])
 
     # Panel A: agreement scaling with effect size
-    cats = ["all directional", "high-conf q<0.05", "top-quartile |slope|"]
+    cats = ["all\ndirectional", "published\nq<0.05", "top quartile\n|layer difference|"]
     vals = [
         aa["sign_agreement_pct"],
         aa["high_confidence_q_lt_005"]["sign_agreement_pct"],
@@ -382,8 +390,8 @@ def figS3():
     for b, v in zip(bars, vals):
         ax_A.text(b.get_x() + b.get_width() / 2, v + 1, f"{v:.1f}%",
                    ha="center", fontsize=6.5)
-    ax_A.axhline(95, color=RED_CENTRAL, lw=0.6, linestyle=":")
-    ax_A.text(0.02, 0.97, "target ≥95%", color=RED_CENTRAL, fontsize=5.5,
+    ax_A.axhline(80, color=RED_CENTRAL, lw=0.6, linestyle=":")
+    ax_A.text(0.02, 0.97, "prespecified target ≥80%", color=RED_CENTRAL, fontsize=5.5,
                 transform=ax_A.transAxes, va="top")
     ax_A.set_ylabel("sign agreement (%)", fontsize=7)
     ax_A.set_ylim(50, 100)
@@ -421,7 +429,7 @@ def figS3():
 # -- S4 ----------------------------------------------------------------------
 
 def figS4():
-    """Within-cell-type robustness using cell2location."""
+    """Hepatocyte-composition sensitivity check using cell2location."""
     add = json.loads(C2LADD.read_text())
     fig = plt.figure(figsize=(mm(192), mm(104)))
     gs = GridSpec(1, 3, figure=fig, wspace=0.50,
@@ -498,7 +506,7 @@ def figS4():
     ax_C.bar(donors, rs, color=cb, edgecolor=CHARCOAL, linewidth=0.5)
     ax_C.axhline(0.3, color=RED_CENTRAL, lw=0.5, linestyle=":")
     ax_C.axhline(-0.3, color=RED_CENTRAL, lw=0.5, linestyle=":")
-    ax_C.text(0.98, 0.92, "±0.3 §4.6 trigger", color=RED_CENTRAL, fontsize=5.5,
+    ax_C.text(0.98, 0.92, "±0.3 diagnostic threshold", color=RED_CENTRAL, fontsize=5.5,
                 transform=ax_C.transAxes, ha="right", va="top")
     ax_C.set_ylabel("r(s, hep_fraction)", fontsize=7)
     ax_C.tick_params(axis="x", labelsize=6.5)
@@ -608,13 +616,14 @@ def figS5():
     colors = [palette[f] for f in flag_for_rank]
     ax_C.bar(range(len(abs_b2)), abs_b2, color=colors, width=0.95,
               edgecolor="none")
-    # Annotate "ranks 1-3 = robust" with a bracket above the first three bars
+    # Annotate the first three bars inside reserved top-left whitespace.
     if len(abs_b2) >= 3:
-        y_top = abs_b2[0] * 1.15
-        ax_C.plot([0, 2], [y_top, y_top], color=RED_CENTRAL, lw=0.6)
-        ax_C.text(0, y_top * 1.04, "ranks 1-3 = robust",
-                   color=RED_CENTRAL, fontsize=5.5, ha="left", va="bottom")
-        ax_C.set_ylim(0, y_top * 1.18)
+        ax_C.set_ylim(0, abs_b2[0] * 1.34)
+        ax_C.text(0.02, 0.96, "ranks 1–3 are robust",
+                  transform=ax_C.transAxes, color=RED_CENTRAL,
+                  fontsize=5.5, ha="left", va="top",
+                  bbox=dict(facecolor="white", edgecolor="none", alpha=0.9,
+                            boxstyle="round,pad=0.18"))
     # Inline mini-legend
     handles = [
         mpatches.Patch(color=RED_CENTRAL, label="robust"),
@@ -671,8 +680,8 @@ def figS6():
         all_vals.extend([m for m in v["bin_ci_lo"] if m is not None and not np.isnan(m)])
         all_vals.extend([m for m in v["bin_ci_hi"] if m is not None and not np.isnan(m)])
     y_min, y_max = float(np.min(all_vals)), float(np.max(all_vals))
-    pad = 0.10 * (y_max - y_min)
-    ax_A.set_ylim(y_min - pad, y_max + pad)
+    span = max(y_max - y_min, 1e-9)
+    ax_A.set_ylim(y_min - 0.10 * span, y_max + 0.28 * span)
     for label in ("low", "mid", "high"):
         v = saa1[label]
         xs = np.asarray(v["bin_centers"])
@@ -728,8 +737,8 @@ def figS6():
         all_vals_o.extend([m for m in v["bin_ci_lo"] if m is not None and not np.isnan(m)])
         all_vals_o.extend([m for m in v["bin_ci_hi"] if m is not None and not np.isnan(m)])
     y_min_o, y_max_o = float(np.min(all_vals_o)), float(np.max(all_vals_o))
-    pad_o = 0.10 * (y_max_o - y_min_o)
-    ax_B.set_ylim(y_min_o - pad_o, y_max_o + pad_o)
+    span_o = max(y_max_o - y_min_o, 1e-9)
+    ax_B.set_ylim(y_min_o - 0.10 * span_o, y_max_o + 0.28 * span_o)
     for label in ("low", "mid", "high"):
         v = orm1[label]
         xs = np.asarray(v["bin_centers"])

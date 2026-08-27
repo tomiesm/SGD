@@ -1,10 +1,12 @@
 """
 09 — W-matrix phenomenological-coefficient stability (Methods §4.7).
 
-Absorbs the legacy C1_phenom_stability script in full — all six
-W-stability diagnostics. The analysis body is copied verbatim; the only
-changes are import rewiring to ``src/sgd/`` and hard-coded paths replaced
-by ``sgd.config`` constants.
+Revised W-stability diagnostics. The former "gene-label permutation null" is
+intentionally removed: permuting response-gene columns only permutes rows of W,
+so an aggregate stable-entry fraction is invariant to that operation. The
+remaining diagnostics quantify numerical rank, trajectory dimensionality,
+bootstrap variability, exact donor-partition disagreement, and cross-platform
+disagreement.
 
 Six diagnostics evaluated at each bin count:
   Standard Visium: N_bins ∈ {30, 50, 100, 150} on the strict 66-gene panel.
@@ -13,10 +15,9 @@ Six diagnostics evaluated at each bin count:
 
   1. Effective rank of the binned design matrix.
   2. Block bootstrap of Ridge-fit W (200 resamples, λ from LOOCV CV).
-  3. Donor-split stability (1000 4-vs-4 splits) — standard Visium only.
+  3. Donor-split stability (all 35 unique 4-vs-4 partitions) — Visium only.
   4. Platform-split stability (Visium-vs-HD on M2+M6 at N=200, 55-gene panel).
-  5. Gene-label permutation baseline (negative control for #2).
-  6. Nullspace dimensionality from #1's SVD.
+  5. Nullspace dimensionality and variance-based trajectory dimension.
 
 Reads:
   RESULTS/visium_human.h5ad
@@ -46,7 +47,7 @@ import pandas as pd
 import scanpy as sc
 
 from sgd.config import RESULTS
-from sgd.confounds import edge_spots_mask
+from sgd.confounds import edge_mask_visium
 from sgd.gradient import SIGMA_BINS, per_gene_gradient, quantile_bin_per_donor_pool
 from sgd.panels import (CENTRAL_MARKERS, PORTAL_MARKERS, _gene_score,
                         analysis_gene_panel, lhd_analysis_mask)
@@ -54,7 +55,6 @@ from sgd.wmatrix import (N_BINS_HD, N_BINS_STANDARD, RIDGE_LAMBDA_GRID,
                          apply_donor_aware_model_A, autocorr_length,
                          block_bootstrap_W, donor_split_W_distance,
                          effective_rank, fit_W_ridge, hd_path_a_donor_subset,
-                         per_cell_log_count_residuals,
                          select_ridge_lambda_loocv)
 
 warnings.filterwarnings("ignore")
@@ -68,8 +68,7 @@ OUT = RESULTS / "phenom_stability.json"
 # --- Constants (verbatim from C1_phenom_stability.py) ---
 N_JOBS = 16
 N_BLOCK_BOOTSTRAP = 200
-N_PERMUTATION = 100
-N_DONOR_SPLITS = 1000
+N_DONOR_SPLITS = 35
 
 
 def standard_visium_panel(adata: ad.AnnData):
@@ -86,8 +85,34 @@ def standard_visium_panel(adata: ad.AnnData):
     return apply_donor_aware_model_A(sub, donor_col="donor_id"), panel
 
 
+def trajectory_pca_summary(Gs: np.ndarray) -> dict:
+    """Variance-based dimension of the centred spatial expression trajectory."""
+    centered = Gs - Gs.mean(axis=0, keepdims=True)
+    singular_values = np.linalg.svd(centered, compute_uv=False)
+    variance = singular_values ** 2
+    evr = variance / max(float(variance.sum()), 1e-12)
+    cumulative = np.cumsum(evr)
+
+    def components_for(threshold: float) -> int:
+        return int(np.searchsorted(cumulative, threshold, side="left") + 1)
+
+    n95 = min(components_for(0.95), Gs.shape[1])
+    return {
+        "centering": "per-gene column mean",
+        "singular_values": singular_values.tolist(),
+        "explained_variance_ratio": evr.tolist(),
+        "cumulative_explained_variance": cumulative.tolist(),
+        "n_components_90pct": components_for(0.90),
+        "n_components_95pct": n95,
+        "n_components_99pct": components_for(0.99),
+        "percent_W_coefficients_unconstrained_at_95pct": float(
+            100.0 * (Gs.shape[1] - n95) / Gs.shape[1]
+        ),
+    }
+
+
 def grid_cell(sub: ad.AnnData, axis: str, n_bins: int) -> dict:
-    """Compute diagnostics 1, 2, 5, 6 for one (axis, n_bins) cell."""
+    """Compute rank, trajectory dimension, and W bootstrap variability."""
     Gs, bc, cpb, _ = quantile_bin_per_donor_pool(
         sub, s_col=axis, n_bins=n_bins, sigma=SIGMA_BINS)
     if np.isnan(bc).all() or len(bc) < 3:
@@ -106,8 +131,10 @@ def grid_cell(sub: ad.AnnData, axis: str, n_bins: int) -> dict:
 
     # Diagnostic 1: effective rank.
     eff_rank = effective_rank(Gs)
-    # Diagnostic 6: nullspace dimensionality = panel_size − effective rank.
+    # Numerical nullspace and variance-based trajectory dimensionality answer
+    # different questions; report both explicitly.
     nullspace_dim = int(n_genes - eff_rank)
+    trajectory = trajectory_pca_summary(Gs)
 
     # Ridge λ via LOOCV (only meaningful at N_bins ≥ 4).
     if Gs.shape[0] < 4:
@@ -124,17 +151,6 @@ def grid_cell(sub: ad.AnnData, axis: str, n_bins: int) -> dict:
     n_stable = int((z > 1.96).sum())
     frac_stable = float(n_stable / max(1, z.size))
 
-    # Diagnostic 5: gene-label permutation baseline.
-    rng = np.random.RandomState(7)
-    perm_frac_stable = []
-    for _ in range(N_PERMUTATION):
-        perm = rng.permutation(n_genes)
-        Wp_mean, Wp_std = block_bootstrap_W(
-            Gs, dgds[:, perm], lam=best_lam, n_boot=20,
-            block_size=block_size, rng_seed=int(rng.randint(0, 2**31 - 1)))
-        zp = np.abs(Wp_mean) / (Wp_std + 1e-12)
-        perm_frac_stable.append(float((zp > 1.96).sum() / max(1, zp.size)))
-
     return {
         "status": "ok",
         "n_bins_target": n_bins,
@@ -144,11 +160,10 @@ def grid_cell(sub: ad.AnnData, axis: str, n_bins: int) -> dict:
         "ridge_mse_grid": [float(m) for m in mse_grid],
         "effective_rank": int(eff_rank),
         "nullspace_dimensionality": nullspace_dim,
+        "trajectory_pca": trajectory,
         "block_bootstrap_block_size": int(block_size),
         "frac_W_stable_z_gt_196": float(frac_stable),
         "n_W_stable_z_gt_196": n_stable,
-        "permutation_frac_stable_mean": float(np.mean(perm_frac_stable)),
-        "permutation_frac_stable_p95": float(np.percentile(perm_frac_stable, 95)),
         "min_cells_per_bin": int(cpb.min()) if len(cpb) else 0,
     }
 
@@ -165,7 +180,11 @@ def platform_split(adata_visium: ad.AnnData, adata_hd: ad.AnnData,
     # HD-side subset. Build axis on the FULL gene set (all 9 markers
     # present per Stage A) BEFORE restricting to the strict-66 panel —
     # the panel doesn't contain all 9 axis markers (only 3 of 9 in strict).
-    sub_hd_full = hd_path_a_donor_subset(adata_hd, sample)
+    axis_genes = list(dict.fromkeys(
+        strict_genes + list(PORTAL_MARKERS) + list(CENTRAL_MARKERS)
+        + ["CYP2E1", "CYP1A2"]
+    ))
+    sub_hd_full = hd_path_a_donor_subset(adata_hd, sample, genes=axis_genes)
     if sub_hd_full.n_obs < n_bins * 2:
         return {"status": "insufficient_HD_data", "n_cells": int(sub_hd_full.n_obs)}
     P = _gene_score(sub_hd_full, PORTAL_MARKERS)
@@ -206,8 +225,7 @@ def platform_split(adata_visium: ad.AnnData, adata_hd: ad.AnnData,
     sample_mask = (adata_visium.obs["sample_id"].astype(str) == sample) \
                    & lhd_analysis_mask(adata_visium)
     sub_v_full = adata_visium[sample_mask, :].copy()
-    coords = np.asarray(sub_v_full.obsm["spatial"])
-    edge = edge_spots_mask(coords, edge_frac=0.05)
+    edge = edge_mask_visium(sub_v_full)
     keep_v = ~edge
     sub_v_keep = sub_v_full[keep_v].copy()
     sub_v_keep = sub_v_keep[:, hd_genes_in_strict].copy()
@@ -239,6 +257,9 @@ def platform_split(adata_visium: ad.AnnData, adata_hd: ad.AnnData,
         "ridge_lambda_used": float(lam),
         "frobenius_ratio": frob,
         "spearman_rho_W_entries": float(rho),
+        "gene_order": hd_genes_in_strict,
+        "W_visium_entries": W_v.ravel().tolist(),
+        "W_hd_entries": W_hd.ravel().tolist(),
     }
 
 
@@ -252,7 +273,7 @@ def main() -> None:
     sub_std, panel = standard_visium_panel(adata)
     print(f"[C1]   Standard Visium: {sub_std.n_obs} spots × {sub_std.n_vars} strict-panel genes")
 
-    # --- Diagnostics 1, 2, 5, 6 across standard-Visium bin counts ---
+    # --- Rank, trajectory dimension, and bootstrap across Visium bin counts ---
     print(f"[C1] Standard-Visium grid (n_bins ∈ {N_BINS_STANDARD})...")
     grid_std = {}
     for nb in N_BINS_STANDARD:
@@ -261,7 +282,7 @@ def main() -> None:
 
     # --- Diagnostic 3: donor-split stability across all standard-Visium bin counts ---
     # Required by the §14 #4 within-standard sub-gate: trend across N_bins.
-    print(f"[C1] Donor-split stability ({N_DONOR_SPLITS} splits) "
+    print(f"[C1] Donor-split stability (all {N_DONOR_SPLITS} unique partitions) "
           f"across N_bins ∈ {N_BINS_STANDARD}...")
     panel_mask = analysis_gene_panel(adata, mode="strict")
     spot_mask = lhd_analysis_mask(adata)
@@ -278,22 +299,48 @@ def main() -> None:
         all_true = np.ones(sub_lhd_resid.n_vars, dtype=bool)
         donor_split_grid[nb] = donor_split_W_distance(
             sub_lhd_resid, donor_col="sample_id", s_col="s",
-            panel_mask=all_true, n_bins=nb, n_splits=N_DONOR_SPLITS, rng_seed=0)
+            panel_mask=all_true, n_bins=nb)
         print(f"[C1]     mean Frob ratio: "
               f"{donor_split_grid[nb].get('mean_frobenius_ratio')}")
     donor_split = donor_split_grid.get(50, {})  # backward-compatible header
 
-    # --- Diagnostics 1, 2, 5, 6 for HD ---
+    # --- Rank, trajectory dimension, and bootstrap for HD ---
     grid_hd = {}
     if VISIUM_HD.exists():
-        print(f"[C1] Loading {VISIUM_HD}")
-        adata_hd = sc.read_h5ad(VISIUM_HD)
+        print(f"[C1] Loading compact HD subset from {VISIUM_HD}")
+        # read_h5ad(backed='r') still materialises dense layers other than X in
+        # current anndata releases. read_lazy keeps X and all layers lazy.
+        adata_hd_lazy = ad.experimental.read_lazy(VISIUM_HD)
+        obs_hd = adata_hd_lazy.obs.to_memory()
         # Subset to path-A pre-segmented for HD diagnostics.
-        path_col = (adata_hd.obs.get("platform_path", "").astype(str)
-                    if "platform_path" in adata_hd.obs.columns else None)
+        path_col = (obs_hd.get("platform_path", "").astype(str)
+                    if "platform_path" in obs_hd.columns else None)
         if path_col is not None:
             mask_a = (path_col == "hd_segmented").to_numpy()
-            adata_hd_a = adata_hd[mask_a].copy()
+            strict_genes = list(adata.var_names[panel_mask])
+            needed_hd_genes = list(dict.fromkeys(
+                strict_genes + list(PORTAL_MARKERS) + list(CENTRAL_MARKERS)
+                + ["CYP2E1", "CYP1A2"]
+            ))
+            needed_hd_genes = [g for g in needed_hd_genes if g in adata_hd_lazy.var_names]
+            gene_indices = np.array(
+                [adata_hd_lazy.var_names.get_loc(g) for g in needed_hd_genes],
+                dtype=int,
+            )
+            # Column-first dask slicing avoids the expensive sparse row-shuffle
+            # path and reads only the genes used by this analysis.
+            X_needed_all = adata_hd_lazy.X[:, gene_indices].compute()
+            X_compact = X_needed_all[mask_a].copy()
+            obsm_compact = {}
+            if "spatial" in adata_hd_lazy.obsm:
+                spatial_all = adata_hd_lazy.obsm["spatial"].compute()
+                obsm_compact["spatial"] = np.asarray(spatial_all)[mask_a].copy()
+            adata_hd_a = ad.AnnData(
+                X=X_compact,
+                obs=obs_hd.loc[mask_a].copy(),
+                var=pd.DataFrame(index=pd.Index(needed_hd_genes, name="gene")),
+                obsm=obsm_compact,
+            )
             print(f"[C1]   HD path A (M2/M6 segmented): {adata_hd_a.n_obs} cells × "
                   f"{adata_hd_a.n_vars} genes")
             # HD axis: same §5.1 recipe per donor across all path-A cells.
@@ -333,7 +380,7 @@ def main() -> None:
             print("[C1] Platform-split (Visium vs HD) on M2 and M6, N=50, 55-gene panel...")
             platform = {}
             for sample in ("M2", "M6"):
-                platform[sample] = platform_split(adata, adata_hd, sample, n_bins=50)
+                platform[sample] = platform_split(adata, adata_hd_a, sample, n_bins=50)
                 print(f"[C1]   {sample}: status={platform[sample].get('status')}; "
                       f"frob={platform[sample].get('frobenius_ratio')}; "
                       f"spearman={platform[sample].get('spearman_rho_W_entries')}")
@@ -388,10 +435,9 @@ def main() -> None:
     } if grid_hd else {}
 
     out = {
-        "schema": "stage_C_phenom_stability_v1",
+        "schema": "stage_C_phenom_stability_v2",
         "n_block_bootstrap": N_BLOCK_BOOTSTRAP,
         "n_donor_splits": N_DONOR_SPLITS,
-        "n_permutation": N_PERMUTATION,
         "ridge_lambda_grid": list(_lam_grid_floats()),
         "panel_strict_size": int(sub_std.n_vars),
         "standard_visium_grid": {str(k): v for k, v in grid_std.items()},

@@ -144,8 +144,10 @@ def panel_C(fig, gs_outer) -> None:
                                   if m is not None and not np.isnan(m)])
         if all_vals:
             y_min, y_max = float(np.min(all_vals)), float(np.max(all_vals))
-            pad = 0.10 * (y_max - y_min)
-            ax.set_ylim(y_min - pad, y_max + pad)
+            span = max(y_max - y_min, 1e-9)
+            # Reserve a clear annotation band above every profile.  The label
+            # must describe the curves without covering a line or CI ribbon.
+            ax.set_ylim(y_min - 0.10 * span, y_max + 0.30 * span)
 
         for label in ("low", "mid", "high"):
             v = gd.get(label)
@@ -167,10 +169,10 @@ def panel_C(fig, gs_outer) -> None:
 
         # Pattern label — colored to match the lipid-high line (RED_CENTRAL)
         # for prominence
-        ax.text(0.97, 0.93, pattern_label[gene], transform=ax.transAxes,
+        ax.text(0.97, 0.96, pattern_label[gene], transform=ax.transAxes,
                  ha="right", va="top", fontsize=7.5, fontweight="bold",
                  fontstyle="italic", color=RED_CENTRAL,
-                 bbox=dict(facecolor="white", edgecolor="none", alpha=0.85,
+                 bbox=dict(facecolor="white", edgecolor="none", alpha=1.0,
                             boxstyle="round,pad=0.30"))
         if k == 2:
             ax.set_xlabel("s (portal → central)", fontsize=8)
@@ -322,12 +324,15 @@ def panel_E(ax) -> None:
             return TEAL_LHD
         return LIGHT_GRAY
     bar_colors = [col_for(q) for q in qs]
+    axis_pad = (np.max(np.abs(nes)) + 0.1) * 1.15
     ax.barh(y, nes, color=bar_colors, edgecolor=CHARCOAL, linewidth=0.5,
              height=0.7)
     for i, r in enumerate(rows):
         q = r["q"]
         suffix = f"q={q:.2f}" if q is not None else ""
-        ax.text(0 + 0.04 * np.sign(nes[i]), y[i], suffix,
+        direction = np.sign(nes[i]) or 1.0
+        # Put q-values beyond the bar tips, never on top of the bars.
+        ax.text(nes[i] + 0.025 * axis_pad * direction, y[i], suffix,
                  fontsize=5.5, va="center",
                  ha="left" if nes[i] > 0 else "right", color=CHARCOAL)
     ax.set_yticks(y)
@@ -347,8 +352,7 @@ def panel_E(ax) -> None:
                bbox_to_anchor=(0.5, -0.27), ncol=3)
     ax.set_title("GSEA prerank on β₂  (n=66, directional)",
                   fontsize=7.5, color=CHARCOAL, pad=4)
-    pad = (np.max(np.abs(nes)) + 0.1) * 1.05
-    ax.set_xlim(-pad, pad)
+    ax.set_xlim(-axis_pad, axis_pad)
 
 
 def main() -> None:

@@ -279,8 +279,9 @@ def load_supp_table_2() -> pd.DataFrame:
 
 def derive_directions(df: pd.DataFrame, min_max_zone: float = 1e-6) -> dict[str, int]:
     """
-    For each gene, compute portal_score = mean(Mean_Zone_1, Mean_Zone_2) and
-    central_score = mean(Mean_Zone_7, Mean_Zone_8). Direction:
+    For each gene, compute central_score = mean(Mean_Zone_1, Mean_Zone_2) and
+    portal_score = mean(Mean_Zone_7, Mean_Zone_8). Direction (the published
+    table is ordered Z1=central to Z8=portal):
       +1 if central > portal (central-enriched)
       -1 if portal > central (portal-enriched)
        0 if equal or both zero
@@ -352,18 +353,26 @@ def build_axis_from_panel(adata_lhd: ad.AnnData,
 # Single-donor axis builder — the §5.1 recipe for P-cohort donors
 # ---------------------------------------------------------------------------
 
-def build_axis_for_p_donor(adata: sc.AnnData, donor: str) -> np.ndarray:
-    """§5.1 score axis on a single donor (used to add obs.s for P6, which
-    Stage B did not include). Returns array length n_obs with values only
-    at donor's spots, NaN elsewhere."""
+def build_axis_for_donor(
+    adata: sc.AnnData,
+    donor: str,
+    portal_markers: Iterable[str] = PORTAL_MARKERS,
+    central_markers: Iterable[str] = CENTRAL_MARKERS,
+) -> np.ndarray:
+    """Build the §5.1 score axis on one donor with an explicit marker set.
+
+    Returns an array of length ``n_obs`` with values only at that donor's
+    spots and NaN elsewhere. The explicit marker arguments make axis-marker
+    exclusion sensitivity analyses use exactly the same production primitive.
+    """
     samples_arr = adata.obs["sample_id"].astype(str).to_numpy()
     m = samples_arr == donor
     s_donor = np.full(adata.n_obs, np.nan)
     if m.sum() < 10:
         return s_donor
     sub = adata[m]
-    P = _gene_score(sub, PORTAL_MARKERS)
-    C = _gene_score(sub, CENTRAL_MARKERS)
+    P = _gene_score(sub, portal_markers)
+    C = _gene_score(sub, central_markers)
     if np.isnan(P).all() or np.isnan(C).all():
         return s_donor
     Pz = (P - np.nanmean(P)) / (np.nanstd(P) + 1e-9)
@@ -376,6 +385,11 @@ def build_axis_for_p_donor(adata: sc.AnnData, donor: str) -> np.ndarray:
         s_d = 1.0 - s_d
     s_donor[m] = s_d
     return s_donor
+
+
+def build_axis_for_p_donor(adata: sc.AnnData, donor: str) -> np.ndarray:
+    """Backward-compatible wrapper for the baseline single-donor axis."""
+    return build_axis_for_donor(adata, donor)
 
 
 def build_p6_axis(adata: sc.AnnData) -> np.ndarray:

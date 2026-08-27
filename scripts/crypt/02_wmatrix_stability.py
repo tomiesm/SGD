@@ -6,7 +6,9 @@ From the Analysis-1 filtered gene set, selects the top 20 spatially variable
 genes (variance of the log1p zone-mean profile across the 7 zones), builds the
 7-zone x 20-gene matrix G (log1p + sigma=0.8 smoothing), runs PCA, fits a
 ridge W with leave-one-bin-out CV for lambda, block-bootstraps W stability,
-and computes a gene-label-permutation null.
+and reports the observed block-bootstrap variability. The former gene-label
+permutation comparison was removed because permuting response-gene columns only
+permutes W rows and cannot define a null for an aggregate entry fraction.
 
 Uses the paper's pipeline functions: sgd.wmatrix.{select_ridge_lambda_loocv,
 fit_W_ridge, effective_rank, block_bootstrap_W} and
@@ -51,9 +53,7 @@ ZONE_MEAN_COLS = [
 ]
 N_TOP_GENES = 20
 N_BOOT = 200             # empirical block-bootstrap resamples
-N_BOOT_PERM = 20         # resamples per permutation; matches the liver W step
 BLOCK_SIZE = 1           # 7 zones; block size 1
-N_PERM = 100             # gene-label permutation null
 Z_STABLE_THRESHOLD = 1.96
 
 
@@ -160,38 +160,6 @@ def main():
     print(f"[A2]   block-bootstrap empirical stable fraction "
           f"(|z|>{Z_STABLE_THRESHOLD}) = {empirical_stable:.6g}")
 
-    # --- Gene-label permutation null ---------------------------------------
-    # Mirrors diagnostic 5 of the paper's W-stability step
-    # (09_wmatrix_stability.py): 100 gene-label permutations, where the
-    # gene-index assignment of the regression target dgds is shuffled (the
-    # columns of dgds are permuted), and the block bootstrap is re-run per
-    # permutation with N_BOOT_PERM=20 resamples and a fresh per-permutation
-    # bootstrap seed (rng.randint). lambda is held at the full-data CV pick,
-    # exactly as 09_wmatrix_stability.py holds its CV-chosen lambda. The
-    # across-permutation spread of the stable fraction arises from the
-    # per-permutation bootstrap-seed variation at 20 resamples.
-    rng = np.random.RandomState(7)
-    perm_stable = np.zeros(N_PERM)
-    perm_seeds = np.zeros(N_PERM, dtype=np.int64)
-    for p in range(N_PERM):
-        perm = rng.permutation(N_TOP_GENES)
-        seed_p = int(rng.randint(0, 2 ** 31 - 1))
-        perm_seeds[p] = seed_p
-        Wm_p, Ws_p = block_bootstrap_W(
-            G, dgds[:, perm], chosen_lambda, n_boot=N_BOOT_PERM,
-            block_size=BLOCK_SIZE, rng_seed=seed_p,
-        )
-        perm_stable[p] = stable_fraction(Wm_p, Ws_p)
-    perm_mean = float(perm_stable.mean())
-    perm_p95 = float(np.percentile(perm_stable, 95))
-    print(f"[A2]   permutation null: mean stable fraction = {perm_mean:.6g}, "
-          f"p95 = {perm_p95:.6g}")
-
-    empirical_below_mean = bool(empirical_stable < perm_mean)
-    empirical_below_p95 = bool(empirical_stable < perm_p95)
-    print(f"[A2]   empirical < perm-null mean: {empirical_below_mean}; "
-          f"empirical < perm-null p95: {empirical_below_p95}")
-
     analysis2 = {
         "data_source": str(TABLE_D),
         "n_zones": 7,
@@ -236,29 +204,6 @@ def main():
                          "09_wmatrix_stability.py",
             "empirical_stable_fraction": empirical_stable,
         },
-        "permutation_null": {
-            "n_permutations": N_PERM,
-            "permuted_object": "gene-index assignment of the regression "
-                               "target dgds (columns of dgds permuted)",
-            "matches_paper_pipeline": "diagnostic 5 of "
-                                      "09_wmatrix_stability.py",
-            "n_boot_per_permutation": N_BOOT_PERM,
-            "block_size": BLOCK_SIZE,
-            "bootstrap_seed_per_permutation": "fresh rng.randint draw per "
-                                              "permutation (rng = "
-                                              "RandomState(7))",
-            "permutation_seeds": [int(x) for x in perm_seeds],
-            "stable_fraction_per_permutation": [float(x) for x in perm_stable],
-            "mean_stable_fraction": perm_mean,
-            "p95_stable_fraction": perm_p95,
-        },
-        "comparison": {
-            "empirical_stable_fraction": empirical_stable,
-            "perm_null_mean": perm_mean,
-            "perm_null_p95": perm_p95,
-            "empirical_below_perm_null_mean": empirical_below_mean,
-            "empirical_below_perm_null_p95": empirical_below_p95,
-        },
         "n7_adaptations": {
             "block_size": "set to 1 (one zone per block); the 7 zones are "
                           "treated as 7 independent blocks. block_bootstrap_W "
@@ -267,12 +212,6 @@ def main():
             "cv_folds": "LeaveOneOut over the 7 zones = 7 folds, trains on 6 "
                         "zones per fold. select_ridge_lambda_loocv runs "
                         "unmodified at N=7; no fold-count change needed.",
-            "permutation_n_boot": "the permutation null uses n_boot=20 per "
-                                  "permutation, matching diagnostic 5 of "
-                                  "09_wmatrix_stability.py; the empirical "
-                                  "bootstrap uses n_boot=200. This n_boot "
-                                  "asymmetry is carried over from the liver "
-                                  "W-stability step.",
             "functions_ran_unmodified": True,
             "no_internal_function_edits": "fit_W_ridge, "
                                           "select_ridge_lambda_loocv, "

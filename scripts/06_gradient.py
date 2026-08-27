@@ -107,32 +107,22 @@ def main() -> None:
         df = pd.concat([df, rel_part], ignore_index=True)
 
     # --- Per-donor estimates (default n_bins only) for B9.
-    # Run the per-gene gradient on each donor in isolation. The pooling
-    # function above takes a multi-donor AnnData; for per-donor we just
-    # subset.
-    print("[B6] Per-donor pipeline at default n_bins (for B9)...")
-    samples_arr = sub.obs["sample_id"].astype(str).to_numpy()
+    # Both panels are required: strict supports the primary validation figure;
+    # relaxed supports the manuscript's broad 15k-gene reproducibility check.
+    print("[B6] Per-donor pipeline at default n_bins (strict + relaxed, for B9)...")
     donor_rows = []
-    for d in sorted(np.unique(samples_arr)):
-        if d not in LHD_SAMPLES:
-            continue
-        m = samples_arr == d
-        sub_d = sub[m].copy()
-        Gs, bc, _, _ = quantile_bin_per_donor_pool(
-            sub_d, s_col="s", n_bins=N_BINS_DEFAULT, sigma=SIGMA_BINS)
-        if np.isnan(bc).all() or len(bc) < 3:
-            continue
-        res = per_gene_gradient(Gs, bc)
-        donor_rows.append(pd.DataFrame({
-            "gene": sub.var_names,
-            "axis": "s",
-            "n_bins": N_BINS_DEFAULT,
-            "donor": d,
-            "bin_mean_dgds": res["bin_mean_dgds"],
-            "slope": res["slope"],
-            "monotonicity": res["monotonicity"],
-            "panel": "strict",
-        }))
+    for panel_name, sub_panel in (("strict", sub), ("relaxed", sub_rel)):
+        samples_arr = sub_panel.obs["sample_id"].astype(str).to_numpy()
+        for d in LHD_SAMPLES:
+            m = samples_arr == d
+            if not m.any():
+                continue
+            donor_part = run_one(sub_panel[m].copy(), axis="s", n_bins=N_BINS_DEFAULT)
+            if donor_part.empty:
+                continue
+            donor_part["donor"] = d
+            donor_part["panel"] = panel_name
+            donor_rows.append(donor_part)
     per_donor_df = pd.concat(donor_rows, ignore_index=True) if donor_rows else pd.DataFrame()
 
     # Save both as a partitioned parquet table.

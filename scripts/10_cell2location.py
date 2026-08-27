@@ -1,5 +1,5 @@
 """
-10 — Proper cell2location run + multi-threshold within-cell-type rescoreboard.
+10 — Proper cell2location run + multi-threshold composition rescoreboard.
 
 Absorbs legacy ``stage_D/D13_cell2location.py`` and
 ``stage_D/D13b_rescoreboard.py``. Two functions run in sequence:
@@ -24,14 +24,14 @@ Reads:  config.SNRNA_PATH (snRNA reference), RESULTS/visium_human.h5ad.
 Writes: RESULTS/obs_hep_fraction_c2l.parquet, RESULTS/d13_snrna_signatures.parquet,
         RESULTS/c3_cell2location_addendum.json (written by run_cell2location,
         then overwritten in place by rescoreboard).
-Feeds:  within-cell-type §4.8 — supp S4 (hep-purity threshold sweep) and
+Feeds:  hepatocyte-composition sensitivity — supp S4 (hep-purity threshold sweep) and
         the C4 row of supp S1 (confound_4_per_sample).
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import os
 import sys
 import time
 import warnings
@@ -43,21 +43,16 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 
-import anndata as ad
-import cell2location
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import torch
-from cell2location.models import RegressionModel
-from cell2location.utils.filtering import filter_genes
-from scipy.sparse import csr_matrix, issparse
+from scipy.sparse import issparse
 from scipy.stats import pearsonr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sgd import config
-from sgd.config import RESULTS, SNRNA_PATH
+from sgd.config import DATA, RESULTS, SNRNA_PATH
 from sgd.panels import (HEADLINE_MARKERS, KNOWN_LIVER_DIRECTION, lhd_analysis_mask)
 from sgd.gradient import (N_BINS_DEFAULT, SIGMA_BINS, per_gene_gradient,
                           quantile_bin_per_donor_pool)
@@ -73,6 +68,7 @@ OUT_PARQUET = RESULTS / "obs_hep_fraction_c2l.parquet"
 REGRESSION_CKPT = RESULTS / "d13_regression_model"
 SIGNATURES_PARQUET = RESULTS / "d13_snrna_signatures.parquet"
 HEP_PARQUET = RESULTS / "obs_hep_fraction_c2l.parquet"
+CACHED_HEP_PARQUET = DATA / "obs_hep_fraction_c2l.parquet"
 ADDENDUM_JSON = RESULTS / "c3_cell2location_addendum.json"
 
 CELL_TYPE_COL = "cluster_annotations"
@@ -94,6 +90,17 @@ THRESHOLDS = [0.40, 0.45, 0.50]
 
 def run_cell2location() -> None:
     """D13 — proper cell2location run; writes the addendum JSON + parquet."""
+    try:
+        import cell2location
+        from cell2location.models import RegressionModel
+        from cell2location.utils.filtering import filter_genes
+    except ImportError as exc:
+        raise RuntimeError(
+            "Training mode requires the optional cell2location, scvi-tools, "
+            "and torch dependencies. Install the GPU extras or use "
+            "--mode rescore with the published cached parquet."
+        ) from exc
+
     t0 = time.time()
     print(f"[D13] Loading snRNA reference (full, in-memory) from {SNRNA_PATH}")
     snrna = sc.read_h5ad(SNRNA_PATH)
@@ -349,12 +356,24 @@ def run_cell2location() -> None:
           f"max |r|: {max(cohort_abs_r) if cohort_abs_r else 'N/A'}")
 
 
-def rescoreboard() -> None:
+def resolve_cached_hep_parquet() -> Path:
+    """Return the generated or downloaded cell2location fraction table."""
+    for path in (HEP_PARQUET, CACHED_HEP_PARQUET):
+        if path.is_file():
+            return path
+    raise FileNotFoundError(
+        "No cell2location fraction parquet found. Expected either "
+        f"{HEP_PARQUET} (generated) or {CACHED_HEP_PARQUET} (downloaded)."
+    )
+
+
+def rescoreboard(hep_parquet: Path | None = None) -> None:
     """D13b — multi-threshold rescoreboard; overwrites addendum JSON in place."""
+    hep_parquet = hep_parquet or resolve_cached_hep_parquet()
     print(f"[D13b] Loading {VISIUM}")
     adata = sc.read_h5ad(VISIUM)
-    print(f"[D13b] Loading {HEP_PARQUET}")
-    hep_df = pd.read_parquet(HEP_PARQUET)
+    print(f"[D13b] Loading {hep_parquet}")
+    hep_df = pd.read_parquet(hep_parquet)
     # Match by (sample_id, barcode) order to adata.obs.
     keys_a = (adata.obs["sample_id"].astype(str) + ":"
               + adata.obs["barcode"].astype(str)).to_numpy()
@@ -362,11 +381,14 @@ def rescoreboard() -> None:
               + hep_df["barcode"].astype(str)).to_numpy()
     h_index = pd.Series(np.arange(len(keys_h)), index=keys_h)
     rows = h_index.reindex(keys_a).to_numpy()
-    if pd.isna(rows).any():
-        n_missing = int(pd.isna(rows).sum())
+    valid_rows = ~pd.isna(rows)
+    if not valid_rows.all():
+        n_missing = int((~valid_rows).sum())
         print(f"[D13b] WARNING: {n_missing} adata spots missing in c2l parquet")
-    rows = rows.astype(int)
-    hep_fraction = hep_df["hep_fraction_c2l"].to_numpy()[rows]
+    hep_fraction = np.full(adata.n_obs, np.nan, dtype=float)
+    hep_fraction[valid_rows] = hep_df["hep_fraction_c2l"].to_numpy()[
+        rows[valid_rows].astype(int)
+    ]
     adata.obs["hep_fraction_c2l"] = hep_fraction
     print(f"[D13b]   hep_fraction quantiles: "
           f"{np.percentile(hep_fraction[~np.isnan(hep_fraction)], [50, 70, 80, 90, 95]).round(3).tolist()}")
@@ -465,8 +487,32 @@ def rescoreboard() -> None:
 
 
 def main() -> None:
-    run_cell2location()
-    rescoreboard()
+    parser = argparse.ArgumentParser(
+        description="Train cell2location or deterministically rescore a cached output."
+    )
+    parser.add_argument(
+        "--mode", choices=("auto", "train", "rescore"), default="auto",
+        help=("auto uses a cached parquet when available and trains otherwise; "
+              "train forces GPU model fitting; rescore never imports cell2location"),
+    )
+    args = parser.parse_args()
+
+    if args.mode == "train":
+        run_cell2location()
+        rescoreboard(OUT_PARQUET)
+        return
+    if args.mode == "rescore":
+        rescoreboard(resolve_cached_hep_parquet())
+        return
+
+    try:
+        cached = resolve_cached_hep_parquet()
+    except FileNotFoundError:
+        run_cell2location()
+        cached = OUT_PARQUET
+    else:
+        print(f"[D13] AUTO: cached cell2location output found at {cached}; skipping GPU training")
+    rescoreboard(cached)
 
 
 if __name__ == "__main__":

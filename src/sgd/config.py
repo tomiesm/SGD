@@ -10,22 +10,30 @@ those are replaced by the constants defined here.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # Repository root: src/sgd/config.py -> parents[0]=sgd, [1]=src, [2]=repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Top-level directories.
-DATA = REPO_ROOT / "data"
-RESULTS = REPO_ROOT / "results"
-FIGURES = REPO_ROOT / "figures"
+# Top-level directories. Environment overrides make it possible to keep the
+# large public inputs and regenerated artifacts outside the Git checkout while
+# preserving repo-relative defaults for the documented reproduction recipe.
+DATA = Path(os.environ.get("SGD_DATA_DIR", REPO_ROOT / "data")).expanduser().resolve()
+RESULTS = Path(os.environ.get("SGD_RESULTS_DIR", REPO_ROOT / "results")).expanduser().resolve()
+FIGURES = Path(os.environ.get("SGD_FIGURES_DIR", REPO_ROOT / "figures")).expanduser().resolve()
 
 # Zenodo DOI for the atlas (raw Visium / Visium HD / snRNA-seq).
 ZENODO_DOI = "10.5281/zenodo.17735506"
 
-# snRNA-seq reference (cell2location reference for step 10). Legacy D13
-# hard-coded /home/tmk-gpu/Desktop/Tomas_I/.../snRNAseq.h5ad — now under data/.
+# snRNA-seq reference (cell2location reference for step 10). Legacy D13 used a
+# machine-specific absolute path; the portable pipeline keeps it under data/.
 SNRNA_PATH = DATA / "snRNAseq.h5ad"
+
+# Yakubovsky per-spot Loupe annotations. ``SGD_LOUPE_DIR`` can point directly
+# at Loupe_categories; otherwise scripts resolve the documented clone/direct
+# download layouts beneath DATA.
+LOUPE_DIR_OVERRIDE = os.environ.get("SGD_LOUPE_DIR")
 
 # Yakubovsky supplementary tables. Legacy code placed them under
 # data/41586_2026_10377_MOESM1_ESM/2025-01-01424E-s1/; that layout is kept.

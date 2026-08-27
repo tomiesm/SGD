@@ -41,7 +41,6 @@ import scanpy as sc
 from joblib import Parallel, delayed
 from scipy.sparse import issparse
 from statsmodels.formula.api import ols
-from statsmodels.stats.multitest import multipletests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -51,8 +50,8 @@ from sgd.io import normalise_supp_t10_barcode
 from sgd.panels import (CENTRAL_MARKERS, PORTAL_MARKERS, _gene_score,
                         analysis_gene_panel)
 from sgd.axis import build_axis_for_p_donor
-from sgd.steatosis import (fit_one_gene_cohort, fit_one_gene_leave_out,
-                           fit_one_gene_per_donor, per_gene_full,
+from sgd.steatosis import (apply_calling_rule, fit_one_gene_cohort,
+                           fit_one_gene_leave_out, fit_one_gene_per_donor, per_gene_full,
                            steatotic_analysis_mask)
 
 warnings.filterwarnings("ignore")
@@ -182,6 +181,10 @@ def steatosis_model() -> None:
         print(f"[D2]   built ad-hoc obs.s for {donor}: "
               f"{int(np.isfinite(s_full[m]).sum())}/{int(m.sum())} valid")
     adata.obs["s"] = s_full
+    # Persist the P6 axis so downstream robustness/calibration steps operate on
+    # the same four-donor coordinate rather than silently dropping P6.
+    adata.write_h5ad(VISIUM, compression="gzip")
+    print(f"[D2] Persisted completed steatotic-donor obs.s to {VISIUM}")
 
     spot_mask = steatotic_analysis_mask(adata)
     print(f"[D2]   steatotic-cohort ∩ ¬fibrotic ∩ lipid_finite: "
@@ -248,118 +251,16 @@ def call_criteria() -> None:
     n = len(df)
     print(f"[D3]   {n} genes")
 
+    df = apply_calling_rule(
+        df,
+        fdr_q_threshold=FDR_Q_THRESHOLD,
+        leave_out_p_threshold=LEAVE_OUT_P_THRESHOLD,
+    )
     ok_mask = df["cohort_status"].astype(str) == "ok"
-
-    # --- Criterion 1: FDR-significant β2 ---
-    pvals = df["p_2"].to_numpy()
-    qvals = np.full(n, np.nan)
-    finite = np.isfinite(pvals)
-    if finite.any():
-        _, q_finite, _, _ = multipletests(pvals[finite], alpha=FDR_Q_THRESHOLD,
-                                           method="fdr_bh")
-        qvals[finite] = q_finite
-    df["q_2"] = qvals
-    df["criterion_1"] = (qvals < FDR_Q_THRESHOLD) & ok_mask
-
-    # --- Criterion 2: per-donor β2 sign agreement ---
-    cohort_sign = np.sign(df["beta_2"].to_numpy())
-    donor_signs_match = np.ones(n, dtype=bool)
-    for donor in STEATOTIC_DONORS:
-        col = f"beta_2_{donor}"
-        if col not in df.columns:
-            continue
-        donor_beta = df[col].to_numpy()
-        donor_sign = np.sign(donor_beta)
-        # NaN donor values fail the sign check.
-        agree = (donor_sign == cohort_sign) & np.isfinite(donor_beta)
-        donor_signs_match &= agree
-    df["criterion_2"] = donor_signs_match & ok_mask
-
-    # --- Criterion 3: survives excluding P6 ---
-    leave_p6_status = df["leave_p6_status"].astype(str) == "ok"
-    leave_p6_beta = df["beta_2_leave_p6"].to_numpy()
-    leave_p6_p = df["p_2_leave_p6"].to_numpy()
-    leave_p6_sign = np.sign(leave_p6_beta)
-    df["criterion_3"] = (
-        leave_p6_status
-        & (leave_p6_sign == cohort_sign)
-        & (leave_p6_p < LEAVE_OUT_P_THRESHOLD)
-        & ok_mask
+    c1, c2, c3, c4, c5, c6 = (
+        df[f"criterion_{i}"].to_numpy(dtype=bool) for i in range(1, 7)
     )
-
-    # --- Criterion 4: survives excluding M1 ---
-    leave_m1_status = df["leave_m1_status"].astype(str) == "ok"
-    leave_m1_beta = df["beta_2_leave_m1"].to_numpy()
-    leave_m1_p = df["p_2_leave_m1"].to_numpy()
-    leave_m1_sign = np.sign(leave_m1_beta)
-    df["criterion_4"] = (
-        leave_m1_status
-        & (leave_m1_sign == cohort_sign)
-        & (leave_m1_p < LEAVE_OUT_P_THRESHOLD)
-        & ok_mask
-    )
-
-    # --- Criterion 5: survives excluding M2 (largest per-donor magnitude
-    # for all 3 robust genes) ---
-    leave_m2_status = df["leave_m2_status"].astype(str) == "ok"
-    leave_m2_beta = df["beta_2_leave_m2"].to_numpy()
-    leave_m2_p = df["p_2_leave_m2"].to_numpy()
-    leave_m2_sign = np.sign(leave_m2_beta)
-    df["criterion_5"] = (
-        leave_m2_status
-        & (leave_m2_sign == cohort_sign)
-        & (leave_m2_p < LEAVE_OUT_P_THRESHOLD)
-        & ok_mask
-    )
-
-    # --- Criterion 6: survives excluding M3 ---
-    leave_m3_status = df["leave_m3_status"].astype(str) == "ok"
-    leave_m3_beta = df["beta_2_leave_m3"].to_numpy()
-    leave_m3_p = df["p_2_leave_m3"].to_numpy()
-    leave_m3_sign = np.sign(leave_m3_beta)
-    df["criterion_6"] = (
-        leave_m3_status
-        & (leave_m3_sign == cohort_sign)
-        & (leave_m3_p < LEAVE_OUT_P_THRESHOLD)
-        & ok_mask
-    )
-
-    # --- Conjunction flag ---
-    c1 = df["criterion_1"].to_numpy()
-    c2 = df["criterion_2"].to_numpy()
-    c3 = df["criterion_3"].to_numpy()
-    c4 = df["criterion_4"].to_numpy()
-    c5 = df["criterion_5"].to_numpy()
-    c6 = df["criterion_6"].to_numpy()
-    flag = np.zeros(n, dtype="O")
-    for i in range(n):
-        if c1[i] and c2[i] and c3[i] and c4[i]:
-            flag[i] = "robust_1234"
-        elif c1[i] and c2[i]:
-            flag[i] = "donor_sensitive_12"
-        elif c1[i]:
-            flag[i] = "weak_1"
-        else:
-            flag[i] = "null_0"
-    df["four_criteria_flag"] = flag
-
-    # --- Strengthened "robust to any single donor" flag ---
-    # All four §11.3 criteria + leave-M2 + leave-M3 surviving.
-    df["robust_to_any_single_donor"] = (
-        c1 & c2 & c3 & c4 & c5 & c6
-    )
-
-    # --- Stage A §14 #9 second-half check ---
-    # Did β2 magnitude shift substantially when log(UMI) was removed?
-    # Restrict the sensitivity flag to **called genes** (robust_1234 or
-    # donor_sensitive_12) only — null genes with tiny β2 can produce
-    # spuriously large relative deltas and falsely trigger §14 #9b.
-    beta_umi = df["beta_2"].to_numpy()
-    beta_no_umi = df["beta_2_no_umi"].to_numpy()
-    delta = np.abs(beta_no_umi - beta_umi) / np.maximum(np.abs(beta_umi), 1e-9)
-    df["c2_log_umi_delta_relative"] = delta
-    called_mask = np.isin(flag, ("robust_1234", "donor_sensitive_12"))
-    df["c2_log_umi_sensitive"] = (delta > 0.3) & ok_mask & called_mask
+    flag = df["four_criteria_flag"].to_numpy(dtype=object)
 
     df.to_parquet(CALL_CRITERIA, compression="zstd", index=False)
     print(f"[D3] Wrote {CALL_CRITERIA}")

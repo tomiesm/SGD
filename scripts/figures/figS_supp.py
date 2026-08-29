@@ -391,8 +391,9 @@ def figS3():
         ax_A.text(b.get_x() + b.get_width() / 2, v + 1, f"{v:.1f}%",
                    ha="center", fontsize=6.5)
     ax_A.axhline(80, color=RED_CENTRAL, lw=0.6, linestyle=":")
-    ax_A.text(0.02, 0.97, "prespecified target ≥80%", color=RED_CENTRAL, fontsize=5.5,
-                transform=ax_A.transAxes, va="top")
+    ax_A.text(0.02, 81.0, "prespecified target ≥80%", color=RED_CENTRAL,
+                fontsize=5.5, transform=ax_A.get_yaxis_transform(),
+                va="bottom")
     ax_A.set_ylabel("sign agreement (%)", fontsize=7)
     ax_A.set_ylim(50, 100)
     ax_A.tick_params(axis="x", labelsize=6, rotation=20)
@@ -619,9 +620,9 @@ def figS5():
     # Annotate the first three bars inside reserved top-left whitespace.
     if len(abs_b2) >= 3:
         ax_C.set_ylim(0, abs_b2[0] * 1.34)
-        ax_C.text(0.02, 0.96, "ranks 1–3 are robust",
+        ax_C.text(0.37, 0.70, "ranks 1–3 are robust",
                   transform=ax_C.transAxes, color=RED_CENTRAL,
-                  fontsize=5.5, ha="left", va="top",
+                  fontsize=5.5, ha="center", va="center",
                   bbox=dict(facecolor="white", edgecolor="none", alpha=0.9,
                             boxstyle="round,pad=0.18"))
     # Inline mini-legend

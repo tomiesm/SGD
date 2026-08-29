@@ -75,12 +75,12 @@ def panel_A(ax, sv_df, hd_df) -> None:
              markersize=5, label="Visium HD (p=55)")
     ax.axhline(66, color=TEAL_LHD_DARK, linestyle=":", lw=0.7, alpha=0.7)
     ax.axhline(55, color=TEAL_LHD, linestyle=":", lw=0.7, alpha=0.7)
-    # Ceiling labels: above each line, anchored at the LEFT edge so they
-    # don't collide with each other or with data on the right.
+    # Keep the Visium label at left; place the HD label above the corresponding
+    # line at the right, clear of both trajectories.
     ax.text(28, 66.8, "Visium ceiling p=66", color=TEAL_LHD_DARK,
              fontsize=5.5, va="bottom", ha="left", style="italic")
-    ax.text(28, 53.5, "HD ceiling p=55", color=TEAL_LHD,
-             fontsize=5.5, va="top", ha="left", style="italic")
+    ax.text(650, 55.8, "HD ceiling p=55", color=TEAL_LHD,
+             fontsize=5.5, va="bottom", ha="right", style="italic")
     ax.set_xscale("log")
     ax.set_xlabel("bin count N", fontsize=7)
     ax.set_ylabel("effective rank", fontsize=7)

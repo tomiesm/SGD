@@ -74,7 +74,9 @@ For a small data-free demonstration, open
 [`examples/quickstart.ipynb`](examples/quickstart.ipynb). It constructs a
 synthetic expression matrix with spatial coordinates, runs the same quantile
 binning and slope primitive used by the manuscript, plots the profiles, and
-reports monotonicity and correlation diagnostics.
+reports monotonicity and correlation diagnostics. The committed notebook is
+executed, so GitHub displays its diagnostic table, figure, and passing checks
+without requiring a local run.
 
 ## Data
 
